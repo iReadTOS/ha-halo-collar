@@ -904,6 +904,12 @@ async def test_fetch_state_rejects_malformed_provider_shapes(responses, message)
     with pytest.raises(HaloApiError, match=message):
         await client.async_fetch_state()
 
+    assert [url for url, _ in session.gets] == [
+        "https://api.example/pet/my",
+        "https://api.example/collar/my",
+        "https://api.example/subscription/my",
+    ]
+
 
 @pytest.mark.asyncio
 async def test_fetch_state_normalizes_malformed_optional_mapping_envelopes():
@@ -1768,3 +1774,157 @@ async def test_walk_history_auth_rejection_preserves_auth_failure_semantics():
 
     with pytest.raises(HaloAuthError):
         await client.async_fetch_state()
+
+
+@pytest.mark.asyncio
+async def test_server_time_transient_failure_preserves_core_state_and_walks(monkeypatch):
+    client = _new_client(FakeSession())
+    original_get = client.async_get
+
+    async def get_with_unavailable_server_time(path):
+        if path == "/system/server-date-time":
+            raise HaloApiError("temporary diagnostic outage")
+        if path == "/walk/my?page=1&pageSize=10":
+            return {"results": [{"endedAt": "2026-07-06T10:30:00Z"}]}
+        return await original_get(path)
+
+    monkeypatch.setattr(
+        client, "async_get", AsyncMock(side_effect=get_with_unavailable_server_time)
+    )
+
+    state = await client.async_fetch_state()
+
+    assert state.pets == [{"id": "pet1"}]
+    assert state.collars == [{"id": "collar1", "telemetry": {}}]
+    assert state.subscription == {"accessLevel": "basic"}
+    assert state.server_time is None
+    assert state.walks == [{"endedAt": "2026-07-06T10:30:00Z"}]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path", ["/pet/my", "/collar/my", "/subscription/my"])
+async def test_required_core_fetch_failure_propagates(monkeypatch, path):
+    client = _new_client(FakeSession())
+    original_get = client.async_get
+    failure = HaloApiError("temporary core outage")
+
+    async def get_with_failed_core(request_path):
+        if request_path == path:
+            raise failure
+        return await original_get(request_path)
+
+    monkeypatch.setattr(client, "async_get", AsyncMock(side_effect=get_with_failed_core))
+
+    with pytest.raises(HaloApiError) as raised:
+        await client.async_fetch_state()
+
+    assert raised.value is failure
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path", ["/system/server-date-time", "/walk/my?page=1&pageSize=10"])
+@pytest.mark.parametrize("error_type", [HaloAuthError, asyncio.CancelledError, RuntimeError])
+async def test_optional_fetch_auth_failure_and_cancellation_propagate(
+    monkeypatch, path, error_type
+):
+    client = _new_client(FakeSession())
+    original_get = client.async_get
+    failure = error_type()
+
+    async def get_with_failed_optional(request_path):
+        if request_path == path:
+            raise failure
+        return await original_get(request_path)
+
+    monkeypatch.setattr(client, "async_get", AsyncMock(side_effect=get_with_failed_optional))
+
+    with pytest.raises(error_type) as raised:
+        await client.async_fetch_state()
+
+    assert raised.value is failure
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("response", "expected"),
+    [
+        (FakeResponse(200, "2026-07-06T00:32:03Z"), "2026-07-06T00:32:03Z"),
+        (FakeResponse(200, {"server_time": "unexpected-envelope"}), None),
+        (FakeResponse(200, None), None),
+        (FakeResponse(200, 123), None),
+        (FakeResponse(403, "PRIVATE_CLOCK_SENTINEL"), None),
+        (FakeResponse(503, "PRIVATE_CLOCK_SENTINEL"), None),
+        (InvalidJsonTokenResponse(200, "PRIVATE_CLOCK_SENTINEL"), None),
+    ],
+    ids=["string", "mapping", "null", "number", "permanent-status", "transient-status", "body"],
+)
+async def test_server_time_response_is_optional_and_released(
+    monkeypatch, caplog, response, expected
+):
+    monkeypatch.setattr(halo_api, "RETRY_BACKOFF_SECONDS", ())
+    session = SequencedSession(
+        [
+            FakeResponse(200, [{"id": "pet-1"}]),
+            FakeResponse(200, [{"id": "collar-1"}]),
+            FakeResponse(200, {"accessLevel": "basic"}),
+            response,
+            FakeResponse(200, {"results": [{"endedAt": "2026-07-06T10:30:00Z"}]}),
+        ]
+    )
+
+    state = await _new_client(session).async_fetch_state()
+
+    assert state.pets == [{"id": "pet-1"}]
+    assert state.collars == [{"id": "collar-1"}]
+    assert state.subscription == {"accessLevel": "basic"}
+    assert state.server_time == expected
+    assert state.walks == [{"endedAt": "2026-07-06T10:30:00Z"}]
+    assert response.released
+    assert "PRIVATE_CLOCK_SENTINEL" not in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stop", ["clock-budget", "outer-deadline", "cancel"])
+async def test_server_time_inflight_body_deadlines_release_response(stop):
+    entered = asyncio.Event()
+
+    class ClockResponse(FakeResponse):
+        async def json(self, content_type=None):
+            entered.set()
+            await asyncio.Event().wait()
+
+    response = ClockResponse(200, None)
+    session = SequencedSession(
+        [
+            FakeResponse(200, [{"id": "pet-1"}]),
+            FakeResponse(200, [{"id": "collar-1"}]),
+            FakeResponse(200, {}),
+            response,
+            FakeResponse(200, {"results": [{"endedAt": "2026-07-06T10:30:00Z"}]}),
+        ]
+    )
+    client = _new_client(session)
+    task = asyncio.create_task(client.async_fetch_state())
+    try:
+        async with asyncio.timeout(10):
+            await entered.wait()
+            if stop == "clock-budget":
+                state = await task
+                assert state.pets == [{"id": "pet-1"}]
+                assert state.server_time is None
+                assert state.walks == [{"endedAt": "2026-07-06T10:30:00Z"}]
+            elif stop == "outer-deadline":
+                with pytest.raises(TimeoutError):
+                    async with asyncio.timeout(0.01):
+                        await task
+            else:
+                task.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await task
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+    assert response.released
+    assert len(session.gets) == (5 if stop == "clock-budget" else 4)
+    assert session.puts == []
