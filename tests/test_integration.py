@@ -1448,7 +1448,7 @@ async def real_client_entry(hass, aioclient_mock):
         ("/collar/my", state.collars),
         ("/subscription/my", state.subscription),
         ("/system/server-date-time", state.server_time),
-        ("/walk/my?page=1&pageSize=10", {"results": []}),
+        ("/walk/my?page=1&pageSize=30", {"results": []}),
     ):
         aioclient_mock.get(f"{DEFAULT_API_BASE}{path}", json=payload)
 
@@ -1780,7 +1780,7 @@ async def test_optional_clock_failure_keeps_telemetry_available_and_diagnostics_
         ("/pet/my", state.pets),
         ("/collar/my", state.collars),
         ("/subscription/my", state.subscription),
-        ("/walk/my?page=1&pageSize=10", {"results": []}),
+        ("/walk/my?page=1&pageSize=30", {"results": []}),
     ):
         aioclient_mock.get(f"{DEFAULT_API_BASE}{path}", json=payload)
     aioclient_mock.get(
@@ -2203,7 +2203,7 @@ async def test_reauth_rotation_preserves_entry_runtime_consistency(
         ("/collar/my", state.collars),
         ("/subscription/my", state.subscription),
         ("/system/server-date-time", state.server_time),
-        ("/walk/my?page=1&pageSize=10", {"results": []}),
+        ("/walk/my?page=1&pageSize=30", {"results": []}),
     ):
         aioclient_mock.get(f"{DEFAULT_API_BASE}{path}", json=payload)
 
@@ -2514,7 +2514,7 @@ async def test_incomplete_setup_retires_tokens_and_retry_persists(
             ("/collar/my", state.collars),
             ("/subscription/my", state.subscription),
             ("/system/server-date-time", state.server_time),
-            ("/walk/my?page=1&pageSize=10", {"results": []}),
+            ("/walk/my?page=1&pageSize=30", {"results": []}),
         ):
             aioclient_mock.get(f"{DEFAULT_API_BASE}{path}", json=payload)
         assert await hass.config_entries.async_unload(entry.entry_id)
