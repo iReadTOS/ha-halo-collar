@@ -1549,6 +1549,8 @@ async def test_fetch_state_stores_only_walk_results_after_core_state_validation(
                                     "id": "pet-1",
                                     "walkedDurationInSeconds": 300,
                                     "walkedDistanceInMeters": "125.5",
+                                    "feedbacksCount": 0,
+                                    "feedbacks": {"name": "PRIVATE_FEEDBACK_SENTINEL"},
                                     "nestedUnknown": {"route": "PRIVATE_NESTED_SENTINEL"},
                                 },
                                 {
@@ -1626,6 +1628,33 @@ async def test_fetch_state_stores_only_walk_results_after_core_state_validation(
             assert "private.invalid" not in value.lower()
 
     assert_allowlisted_walk(state.walks)
+
+
+@pytest.mark.asyncio
+async def test_fetch_state_preserves_activity_without_extra_requests():
+    session = SequencedSession(
+        [
+            FakeResponse(200, [{"id": "pet-1", "telemetry": {"activityType": 1}}]),
+            FakeResponse(200, [{"id": "collar-1"}]),
+            FakeResponse(200, {}),
+            FakeResponse(200, "2026-07-06T00:32:03Z"),
+            FakeResponse(200, {"results": [{"pets": [{"id": "pet-1", "feedbacksCount": 2}]}]}),
+        ]
+    )
+    state = await _new_client(session).async_fetch_state()
+    assert state.pets[0]["telemetry"]["activityType"] == 1
+    assert state.walks == [{"pets": [{"id": "pet-1"}]}]
+    assert [url for url, _headers in session.gets] == [
+        f"https://api.example{path}"
+        for path in (
+            "/pet/my",
+            "/collar/my",
+            "/subscription/my",
+            "/system/server-date-time",
+            "/walk/my?page=1&pageSize=10",
+        )
+    ]
+    assert session.puts == []
 
 
 @pytest.mark.asyncio

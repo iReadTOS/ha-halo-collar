@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
+from pathlib import Path
+
+import pytest
 
 from custom_components.halo_collar.helpers import (
     REDACTED,
@@ -27,11 +31,73 @@ from custom_components.halo_collar.helpers import (
     next_expected_telemetry,
     pet_fences_enabled,
     pet_for_collar,
+    pet_reported_activity,
     pet_safety_status,
     redact,
+    reported_activity_options,
     reporting_issue,
     sensor_values,
 )
+
+
+@pytest.mark.parametrize(
+    ("code", "expected"),
+    [
+        (1, "walking"),
+        (2, "resting"),
+        (3, "driving"),
+        (4, "running"),
+        (5, "eating_drinking"),
+        (6, "sniffing"),
+        (7, "lying"),
+        (8, "human_carry"),
+        (9, "on_shelf"),
+    ],
+)
+def test_reported_activity_known_pet_codes(code, expected):
+    assert pet_reported_activity({"telemetry": {"activityType": code}}) == expected
+
+
+@pytest.mark.parametrize(
+    "raw", [None, True, False, 0, -1, 10, 999, 1.0, 2.0, "1", "walking", [], {}]
+)
+def test_reported_activity_rejects_unknown_and_non_integer_codes(raw):
+    assert pet_reported_activity({"telemetry": {"activityType": raw}}) is None
+
+
+@pytest.mark.parametrize("pet", [None, {}, {"telemetry": None}, {"telemetry": []}])
+def test_reported_activity_missing_or_malformed_pet_is_unknown(pet):
+    assert pet_reported_activity(pet) is None
+
+
+def test_reported_activity_ignores_collar_copies_and_returns_fresh_options():
+    assert pet_reported_activity({"collarInfo": {"telemetry": {"activityType": 1}}}) is None
+    options = reported_activity_options()
+    assert len(options) == len(set(options)) == 9
+    options.clear()
+    assert len(reported_activity_options()) == 9
+
+
+def test_reported_activity_translation_state_keys_match_options():
+    integration = Path(__file__).resolve().parents[1] / "custom_components" / "halo_collar"
+    strings = json.loads((integration / "strings.json").read_text())["entity"]["sensor"]
+    english = json.loads((integration / "translations" / "en.json").read_text())["entity"]["sensor"]
+    assert strings["last_reported_activity"] == english["last_reported_activity"]
+    assert set(strings["last_reported_activity"]["state"]) == set(reported_activity_options())
+
+
+def test_oversized_walk_duration_string_stays_unknown():
+    summary = latest_completed_walk(
+        [
+            {
+                "endedAt": "2026-07-06T11:00:00Z",
+                "pets": [{"id": "pet-1", "walkedDurationInSeconds": "9" * 5000}],
+            }
+        ],
+        "pet-1",
+    )
+    assert summary is not None
+    assert summary["duration"] is None
 
 
 def _complete_issues(status: str = "noIssue") -> dict:
@@ -621,6 +687,7 @@ def test_indoors_on_wifi_requires_both_signals():
 def test_redact_masks_sensitive_collar_payload_without_mutating_input():
     collar = {
         "serialNumber": "FAKE-SERIAL-001",
+        "uuId": "FAKE-HARDWARE-UUID",
         "deviceId": "fake-device-uuid",
         "petInfo": {
             "name": "FakePet",
@@ -639,6 +706,7 @@ def test_redact_masks_sensitive_collar_payload_without_mutating_input():
     }
     original = {
         "serialNumber": collar["serialNumber"],
+        "uuId": collar["uuId"],
         "deviceId": collar["deviceId"],
         "petInfo": {
             "name": collar["petInfo"]["name"],
@@ -659,6 +727,7 @@ def test_redact_masks_sensitive_collar_payload_without_mutating_input():
     result = redact(collar)
 
     assert result["serialNumber"] == REDACTED
+    assert result["uuId"] == REDACTED
     assert result["deviceId"] == REDACTED
     assert result["petInfo"]["name"] == REDACTED
     # Keys matching the redaction list are masked wholesale, containers included.

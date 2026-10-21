@@ -46,6 +46,12 @@ The integration requests `/walk/my?page=1&pageSize=10` and retains at most ten r
 
 History is optional enrichment, not live tracking. Unknown can mean no valid matching record in that window or an optional history timeout or error. It does not prove that no historical walk exists. Recent-walk entities never expose route, location, user, walk-ID, feedback, or correction fields.
 
+### Last reported activity
+
+The sensor reads only `pet.telemetry.activityType` through the existing exact pet relationship. Known integer codes map to stable translated enum states. Missing, malformed, zero, and unknown codes produce unknown. Booleans, floats, and strings are rejected. Cached known classifications remain visible when collar reports age. A failed required refresh makes telemetry unavailable. No extra requests or timers are added.
+
+The code map comes from the Halo app. A live cloud response confirmed the field path, its integer type, and the resting code. The other codes are not yet observed live.
+
 ## Authentication
 
 The config flow collects the user's Halo email and password and exchanges them for OAuth tokens via the password grant. The bundled `client_id`/`client_secret` are static, app-level credentials extracted from the official Halo app (shared by all installs, not user data); users can override them in the advanced fields during initial setup. Reauthentication uses the saved OAuth settings and exposes only email and password. Options cannot change OAuth settings. See [account recovery](../SUPPORT.md#recover-authentication) for existing-entry precautions.
@@ -141,7 +147,7 @@ same entity IDs.
 ## Privacy boundary
 
 Config-entry diagnostics recursively redact generic provider IDs, names,
-serials, coordinates, credentials, and account fields. Stable collar IDs and
+serials, hardware UUIDs, coordinates, credentials, and account fields. Stable collar IDs and
 the local display name remain in Home Assistant's private device/entity
 registries because they provide durable identity and usable household labels;
 those local registries and backups must be protected as household data and are

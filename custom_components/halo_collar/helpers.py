@@ -16,6 +16,7 @@ REDACT_KEYS = frozenset(
         "id",
         "token",
         "serialnumber",
+        "uuid",
         "latitude",
         "longitude",
         "location",
@@ -62,6 +63,18 @@ _STATUS_LABELS = {
 
 _WALK_START_TRIGGER_LABELS = {
     "button": "Button",
+}
+
+_PET_ACTIVITY_OPTIONS_BY_CODE = {
+    1: "walking",
+    2: "resting",
+    3: "driving",
+    4: "running",
+    5: "eating_drinking",
+    6: "sniffing",
+    7: "lying",
+    8: "human_carry",
+    9: "on_shelf",
 }
 
 _COLLAR_ISSUE_FIELDS = (
@@ -222,6 +235,15 @@ def pet_fences_enabled(pet: dict[str, Any] | None) -> bool | None:
 def pet_safety_status(pet: dict[str, Any] | None) -> Any:
     """Return current pet safety status from the live pet telemetry payload."""
     return pretty_status(nested(pet or {}, "telemetry", "safetyStatus"))
+
+
+def pet_reported_activity(pet: dict[str, Any] | None) -> str | None:
+    raw = nested(pet or {}, "telemetry", "activityType")
+    return _PET_ACTIVITY_OPTIONS_BY_CODE.get(raw) if type(raw) is int else None
+
+
+def reported_activity_options() -> list[str]:
+    return list(_PET_ACTIVITY_OPTIONS_BY_CODE.values())
 
 
 def active_walk_state(pet: dict[str, Any] | None, collar: dict[str, Any] | None) -> bool | None:
@@ -416,7 +438,10 @@ def non_negative_integer(value: Any) -> int | None:
     if isinstance(value, str):
         normalized = value.strip()
         if normalized.isdecimal():
-            return int(normalized)
+            try:
+                return int(normalized)
+            except ValueError:
+                return None
     return None
 
 
