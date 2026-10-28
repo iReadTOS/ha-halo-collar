@@ -87,6 +87,10 @@ class FakeHaloClient:
         if pre_dispatch is not None:
             pre_dispatch()
         self.writes.append((pet_id, enabled))
+        self.state = deepcopy(self.state)
+        for pet in self.state.pets:
+            if pet["id"] == pet_id:
+                pet["telemetry"]["mode"]["fencesOn"] = enabled
         return {"ok": True}
 
     async def async_find_collar(self, collar_id, *, pre_dispatch=None):
@@ -459,6 +463,63 @@ async def test_find_collar_button_is_opt_in_and_dispatches_one_synthetic_command
     assert _state_for_unique_id(hass, "sensor", "collar-1_find_collar_status").state == "ready"
 
 
+@pytest.mark.parametrize(("service", "enabled"), [("turn_on", True), ("turn_off", False)])
+async def test_fence_switch_writes_requested_mode_and_shows_confirmed_state(hass, service, enabled):
+    state = _state()
+    state.pets[0]["telemetry"]["mode"]["fencesOn"] = not enabled
+    client = FakeHaloClient(state)
+    entry = _entry({CONF_ALLOW_FENCE_DISABLE: True})
+    entry.add_to_hass(hass)
+    await _setup(hass, entry, client)
+    before, after = (STATE_OFF, STATE_ON) if enabled else (STATE_ON, STATE_OFF)
+    assert hass.states.get("switch.cowboy_fence_mode").state == before
+
+    await hass.services.async_call(
+        "switch", service, {"entity_id": "switch.cowboy_fence_mode"}, blocking=True
+    )
+    await hass.async_block_till_done()
+
+    assert client.writes == [("pet-1", enabled)]
+    assert hass.states.get("switch.cowboy_fence_mode").state == after
+
+
+async def test_fence_switch_turn_off_during_active_walk_is_refused_without_a_write(hass):
+    client = FakeHaloClient(_state())
+    entry = _entry({CONF_ALLOW_FENCE_DISABLE: True})
+    entry.add_to_hass(hass)
+    await _setup(hass, entry, client)
+    client.state = deepcopy(client.state)
+    telemetry = client.state.collars[0]["telemetry"]
+    telemetry["walk"] = {"startTime": telemetry["manifest"]["timestamp"]}
+
+    with pytest.raises(HomeAssistantError, match="active walk"):
+        await hass.services.async_call(
+            "switch", "turn_off", {"entity_id": "switch.cowboy_fence_mode"}, blocking=True
+        )
+    await hass.async_block_till_done()
+
+    assert client.writes == []
+    assert hass.states.get("switch.cowboy_fence_mode").state == STATE_ON
+
+
+async def test_enable_fences_button_writes_enable_and_shows_confirmed_state(hass):
+    state = _state()
+    state.pets[0]["telemetry"]["mode"]["fencesOn"] = False
+    client = FakeHaloClient(state)
+    entry = _entry({})
+    entry.add_to_hass(hass)
+    await _setup(hass, entry, client)
+    assert hass.states.get("binary_sensor.cowboy_fences_enabled").state == STATE_OFF
+
+    await hass.services.async_call(
+        "button", "press", {"entity_id": "button.cowboy_enable_fences"}, blocking=True
+    )
+    await hass.async_block_till_done()
+
+    assert client.writes == [("pet-1", True)]
+    assert hass.states.get("binary_sensor.cowboy_fences_enabled").state == STATE_ON
+
+
 @pytest.mark.parametrize(
     "options,actions",
     [
@@ -762,6 +823,58 @@ async def test_reported_activity_translations_match_enum_options(hass):
     assert actual["human_carry"] == "Being carried"
     assert actual["eating_drinking"] == "Eating or drinking"
     assert client.writes == client.finds == []
+
+
+async def test_runtime_telemetry_sensors_read_live_payload_shape(hass):
+    state = _state()
+    collar = state.collars[0]
+    reported = datetime.now(UTC).replace(microsecond=0)
+    collar["firmware"] = {"formattedVersion": "03.06.64"}
+    collar["petInfo"]["telemetry"].update(
+        {"gpsAccuracyInMeters": 10.01, "gpsAccuracyStatus": "indoors"}
+    )
+    collar["telemetry"].update(
+        {
+            "manifest": {"timestamp": reported.strftime("%Y-%m-%dT%H:%M:%SZ")},
+            "batteryStatus": "notcharged",
+            "remainingBatteryLifetimeInSeconds": 117411,
+            "currentAdapter": "wifi",
+            "wiFi": {"status": "socketconnected", "signalStrength": -70},
+            "cellular": {"status": "disconnected", "signalStrength": -87},
+        }
+    )
+    client = FakeHaloClient(state)
+    entry = _entry({CONF_ENABLE_FENCE_CONTROLS: False})
+    entry.add_to_hass(hass)
+
+    await _setup(hass, entry, client)
+
+    expected = {
+        "battery_status": "Not charging",
+        "remaining_battery_lifetime": "32.6",
+        "current_adapter": "Wi-Fi",
+        "wifi_status": "Connected",
+        "cellular_signal": "-87",
+        "gps_accuracy_status": "Indoors",
+        "firmware": "03.06.64",
+        "last_telemetry": reported.isoformat(),
+    }
+    assert {
+        key: _state_for_unique_id(hass, "sensor", f"collar-1_{key}").state for key in expected
+    } == expected
+
+
+async def test_runtime_telemetry_sensors_are_unknown_when_telemetry_is_malformed(hass):
+    state = _state()
+    state.collars[0]["telemetry"] = ["unexpected", {"private": "value"}]
+    client = FakeHaloClient(state)
+    entry = _entry({CONF_ENABLE_FENCE_CONTROLS: False})
+    entry.add_to_hass(hass)
+
+    await _setup(hass, entry, client)
+
+    for key in ("battery", "wifi_status", "last_telemetry"):
+        assert _state_for_unique_id(hass, "sensor", f"collar-1_{key}").state == STATE_UNKNOWN
 
 
 async def test_present_tense_telemetry_is_unknown_while_connectivity_is_off(hass):
@@ -1173,6 +1286,93 @@ async def test_runtime_tracker_uses_home_zone_when_halo_reports_indoor_wifi(hass
     tracker = hass.states.get("device_tracker.cowboy")
     assert tracker is not None
     assert tracker.state == "home"
+
+
+@pytest.mark.parametrize(
+    ("breach", "attributes"),
+    [
+        pytest.param(
+            {"fenceName": "Synthetic Fence", "direction": "exit"},
+            {"fenceName": "Synthetic Fence", "direction": "exit"},
+            id="dict",
+        ),
+        pytest.param("synthetic-breach", {"detail": "synthetic-breach"}, id="scalar"),
+    ],
+)
+async def test_fence_breach_event_fires_once_per_new_breach(hass, freezer, breach, attributes):
+    state = _state()
+    telemetry = state.collars[0]["telemetry"]
+    earlier = {"fenceName": "Synthetic Earlier Fence"}
+    telemetry["fenceBreach"] = earlier
+    client = FakeHaloClient(state)
+    entry = _entry({})
+    entry.add_to_hass(hass)
+    await _setup(hass, entry, client)
+    coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+
+    async def refresh_with(value):
+        freezer.tick(60)
+        telemetry["fenceBreach"] = value
+        await coordinator.async_refresh()
+        await hass.async_block_till_done()
+        return hass.states.get("event.cowboy_fence_breach_event")
+
+    assert hass.states.get("event.cowboy_fence_breach_event").state == STATE_UNKNOWN
+    assert (await refresh_with(deepcopy(earlier))).state == STATE_UNKNOWN
+
+    fired = await refresh_with(breach)
+    assert fired.state != STATE_UNKNOWN
+    assert fired.attributes["event_type"] == "fence_breach"
+    assert {key: fired.attributes.get(key) for key in attributes} == attributes
+
+    repeated = await refresh_with(deepcopy(breach))
+    assert (repeated.state, repeated.attributes) == (fired.state, fired.attributes)
+
+    cleared = await refresh_with(None)
+    assert (cleared.state, cleared.attributes) == (fired.state, fired.attributes)
+
+
+@pytest.mark.parametrize(
+    ("pet_info", "expected_state", "expected"),
+    [
+        pytest.param(
+            {
+                "location": {"latitude": 12.5, "longitude": -45.25},
+                "lastLocation": {"latitude": -7.75, "longitude": 101.5},
+            },
+            "not_home",
+            {"latitude": 12.5, "longitude": -45.25, "gps_accuracy": 5.0},
+            id="location",
+        ),
+        pytest.param(
+            {"location": None, "lastLocation": {"latitude": -7.75, "longitude": 101.5}},
+            "not_home",
+            {"latitude": -7.75, "longitude": 101.5, "gps_accuracy": 5.0},
+            id="last-location",
+        ),
+        pytest.param({}, STATE_UNKNOWN, {}, id="none"),
+    ],
+)
+async def test_runtime_tracker_reports_current_or_last_known_coordinates(
+    hass, pet_info, expected_state, expected
+):
+    state = _state()
+    collar_pet_info = state.collars[0]["petInfo"]
+    collar_pet_info.pop("location")
+    collar_pet_info.update(pet_info)
+    client = FakeHaloClient(state)
+    entry = _entry({})
+    entry.add_to_hass(hass)
+
+    await _setup(hass, entry, client)
+
+    tracker = hass.states.get("device_tracker.cowboy")
+    coordinates = {
+        key: tracker.attributes[key]
+        for key in ("latitude", "longitude", "gps_accuracy")
+        if key in tracker.attributes
+    }
+    assert (tracker.state, coordinates) == (expected_state, expected)
 
 
 async def test_runtime_reload_preserves_domain_lock_and_revokes_disable_surface(hass):
