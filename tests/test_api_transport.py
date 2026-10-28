@@ -16,7 +16,11 @@ import pytest
 
 from custom_components.halo_collar import api as halo_api
 from custom_components.halo_collar import transport as halo_transport
-from custom_components.halo_collar.api import HaloApiClient, HaloWriteOutcomeUnknown
+from custom_components.halo_collar.api import (
+    HaloApiClient,
+    HaloApiError,
+    HaloWriteOutcomeUnknown,
+)
 from custom_components.halo_collar.const import CONF_ENABLE_FIND_COLLAR
 from custom_components.halo_collar.controls import (
     HaloControlError,
@@ -436,3 +440,68 @@ async def test_real_find_transaction_keeps_lock_and_cooldown_through_cancelled_r
         assert not lock.locked()
         assert refresh_count == 2
         assert received == [_expected_request("find")]
+
+
+@asynccontextmanager
+async def _malformed_status_line_server():
+    handlers = []
+
+    async def serve(reader, writer):
+        handlers.append(asyncio.current_task())
+        try:
+            async with asyncio.timeout(5):
+                head = await reader.readuntil(b"\r\n\r\n")
+                for field in head.decode("ascii").split("\r\n"):
+                    name, _, value = field.partition(":")
+                    if name.lower() == "content-length":
+                        await reader.readexactly(int(value))
+                writer.write(b"HTTP/1.1 abc garbage\r\n\r\n")
+                await writer.drain()
+        finally:
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except ConnectionError:
+                pass
+
+    server = await asyncio.start_server(serve, "127.0.0.1", 0)
+    port = server.sockets[0].getsockname()[1]
+    try:
+        async with server:
+            yield f"http://127.0.0.1:{port}"
+    finally:
+        if handlers:
+            await asyncio.gather(*handlers)
+
+
+@pytest.mark.parametrize(
+    ("request_kind", "header_in_repr", "secret"),
+    [
+        ("get", "Bearer synthetic-access", "synthetic-access"),
+        ("token", "Halo-Client", "synthetic-client"),
+    ],
+)
+async def test_transport_error_message_omits_request_headers(
+    monkeypatch, request_kind, header_in_repr, secret
+):
+    monkeypatch.setattr(halo_api, "RETRY_BACKOFF_SECONDS", (0.0, 0.0))
+    async with (
+        _malformed_status_line_server() as base_url,
+        aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session,
+    ):
+        client = _new_client(session, base_url)
+        with pytest.raises(HaloApiError) as raised:
+            if request_kind == "get":
+                await client.async_get("/pet/my")
+            else:
+                await client.async_refresh_token()
+
+    cause = raised.value.__cause__
+    assert isinstance(cause, aiohttp.ClientResponseError)
+    assert header_in_repr in repr(cause)
+    message = str(raised.value)
+    assert "Authorization" not in message
+    assert "Halo-Client" not in message
+    assert secret in repr(cause)
+    assert secret not in message
+    assert "ClientResponseError: 400" in message

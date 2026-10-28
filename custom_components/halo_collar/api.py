@@ -37,6 +37,12 @@ RETRY_BACKOFF_SECONDS = (1.0, 3.0)
 _LOGGER = logging.getLogger(__name__)
 
 
+def _error_text(err: BaseException) -> str:
+    """Name and str() of a transport error. repr() can carry request headers."""
+    detail = str(err)
+    return f"{type(err).__name__}: {detail}" if detail else type(err).__name__
+
+
 def _safe_walk_number_or_string(value: Any) -> int | float | str | None:
     """Keep only scalar walk metrics the fail-soft extractors can normalize."""
     if isinstance(value, bool) or not isinstance(value, (int, float, str)):
@@ -449,7 +455,7 @@ class HaloApiClient:
             except (TimeoutError, aiohttp.ClientError, ValueError) as err:
                 last_error = err
                 if attempt == attempts - 1:
-                    raise HaloApiError(f"GET {path} failed: {err!r}") from err
+                    raise HaloApiError(f"GET {path} failed: {_error_text(err)}") from err
                 continue
             finally:
                 release = getattr(response, "release", None)
@@ -458,7 +464,8 @@ class HaloApiClient:
             if status in RETRYABLE_STATUS and attempt < attempts - 1:
                 continue
             return status, payload
-        raise AssertionError(f"unreachable after GET failure: {last_error!r}")
+        detail = _error_text(last_error) if last_error is not None else "no error recorded"
+        raise AssertionError(f"unreachable after GET failure: {detail}")
 
     async def _async_refresh_if_needed(self) -> None:
         if self._token_needs_refresh():
@@ -525,7 +532,7 @@ class HaloApiClient:
         except HaloApiError:
             raise
         except (TimeoutError, aiohttp.ClientError) as err:
-            raise HaloApiError(f"Token request failed: {err!r}") from err
+            raise HaloApiError(f"Token request failed: {_error_text(err)}") from err
         except ValueError as err:
             if response is not None and 400 <= response.status < 500:
                 raise HaloAuthError(
