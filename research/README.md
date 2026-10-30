@@ -50,3 +50,24 @@ python3 -m unittest discover -s research -p 'test_*.py' -v
    and keep cloud write controls off by default.
 4. Never ask users to share Apple login details, access/refresh tokens,
    authorization codes, or private API captures.
+
+## Authorization-code token exchange research
+
+`token_exchange.py` adds the next *offline-only* stage of the experiment:
+verify the synthetic callback state and URI, construct an authorization-code
+POST using the original PKCE verifier and redirect URI, and validate the
+response. `test_token_exchange.py` uses a fake in-memory HTTP session and
+synthetic tokens; no tests contact Halo or run a real account login.
+
+This is **not a deployable or complete OIDC login**. We have not established
+whether Halo accepts a Home Assistant callback. A real implementation must
+also validate ID-token signatures and claims against Halo's verified OIDC
+metadata (issuer, audience, expiry, nonce), verify same-account identity,
+securely persist and rotate tokens, and handle reauthentication. Do not use
+these helpers with live Halo credentials or authorization codes.
+
+The previous unauthenticated GET checks for both the official mobile callback
+and Home Assistant's callback returned HTTP 403 without a redirect-specific
+error. Cloudflare was listed as the response server but no explicit challenge
+marker or block-page indicator was found. This remains **inconclusive**; do
+not treat it as proof that the Home Assistant callback is registered or rejected.
