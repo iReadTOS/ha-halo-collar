@@ -71,3 +71,26 @@ and Home Assistant's callback returned HTTP 403 without a redirect-specific
 error. Cloudflare was listed as the response server but no explicit challenge
 marker or block-page indicator was found. This remains **inconclusive**; do
 not treat it as proof that the Home Assistant callback is registered or rejected.
+
+## Signed ID-token verification (offline research)
+
+`oidc_identity.py` verifies a synthetic RS256-signed ID token against a supplied
+JWKS, including issuer, audience, expiry, issuance time, nonce, authorized party,
+and subject. It treats optional email claims as *not verified* unless the token
+explicitly asserts `email_verified: true`, and uses the stable issuer+subject
+identity rather than trusting email as an account identifier.
+
+A live caller MUST obtain the correct JWKS through authenticated HTTPS from a
+validated issuer discovery document; this module intentionally makes no network
+requests. Passing an attacker-provided JWKS defeats signature verification.
+This remains offline-only and does not enable login or remove the requirement
+for a provider-approved HA redirect URI. Additional OIDC checks and HA integration
+are required before any production use.
+
+Install the research-only crypto dependency in an ephemeral environment and run
+all tests, including the existing stdlib-only tests:
+
+```bash
+uv run --no-project --with 'PyJWT[crypto]>=2.10,<3' \
+  python -m unittest discover -s research -p 'test_*.py' -v
+```
