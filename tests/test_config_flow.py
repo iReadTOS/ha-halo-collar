@@ -95,8 +95,13 @@ async def _start_user_flow(hass):
         DOMAIN,
         context={"source": config_entries.SOURCE_USER},
     )
-    assert result["type"] is FlowResultType.FORM
+    assert result["type"] is FlowResultType.MENU
     assert result["step_id"] == "user"
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"next_step_id": "password"}
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "password"
     return result
 
 
@@ -152,7 +157,7 @@ async def test_user_flow_classifies_login_failures(hass, error, expected):
         result = await hass.config_entries.flow.async_configure(initial["flow_id"], _user_input())
 
     assert result["type"] is FlowResultType.FORM
-    assert result["step_id"] == "user"
+    assert result["step_id"] == "password"
     assert result["errors"] == {"base": expected}
     password_field = convert(
         result["data_schema"].schema[CONF_PASSWORD], custom_serializer=cv.custom_serializer

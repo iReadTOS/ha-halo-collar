@@ -1,6 +1,10 @@
 DOMAIN = "halo_collar"
 
 CONF_EMAIL = "email"
+CONF_AUTH_METHOD = "auth_method"
+CONF_SSO_ISSUER = "sso_issuer"
+CONF_SSO_SUBJECT = "sso_subject"
+SSO_VAULT_AUTH = "sso_vault"
 CONF_PASSWORD = "password"
 CONF_ACCESS_TOKEN = "access_token"
 CONF_REFRESH_TOKEN = "refresh_token"

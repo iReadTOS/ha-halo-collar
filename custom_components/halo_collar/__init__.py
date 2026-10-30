@@ -8,6 +8,7 @@ from typing import Any, NamedTuple
 from .const import (
     CONF_ACCESS_TOKEN,
     CONF_ALLOW_FENCE_DISABLE,
+    CONF_AUTH_METHOD,
     CONF_CLIENT_ID,
     CONF_CLIENT_SECRET,
     CONF_ENABLE_FENCE_CONTROLS,
@@ -21,6 +22,7 @@ from .const import (
     DEFAULT_SCAN_INTERVAL_SECONDS,
     DOMAIN,
     PLATFORMS,
+    SSO_VAULT_AUTH,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -71,6 +73,8 @@ def _scan_interval(entry) -> timedelta:
 
 
 def _controls_signature(entry) -> tuple[bool, bool, bool]:
+    if entry.data.get(CONF_AUTH_METHOD) == SSO_VAULT_AUTH:
+        return (False, False, False)
     return (
         bool(entry.options.get(CONF_ENABLE_FENCE_CONTROLS, False)),
         bool(entry.options.get(CONF_ENABLE_FIND_COLLAR, False)),
@@ -92,6 +96,7 @@ async def async_setup_entry(hass, entry) -> bool:
     ssl_context = await hass.async_add_executor_job(client_context)
     _absorb_reload_requests(hass, entry.entry_id)
     data = dict(entry.data)
+    is_sso_read_only = data.get(CONF_AUTH_METHOD) == SSO_VAULT_AUTH
     credentials = _credentials(data)
     writer = _TokenWriter(hass, entry, credentials)
     setup_complete = False
@@ -106,10 +111,14 @@ async def async_setup_entry(hass, entry) -> bool:
             client_secret=data.get(CONF_CLIENT_SECRET, ""),
             api_base=DEFAULT_API_BASE,
             auth_base=DEFAULT_AUTH_BASE,
-            write_transport=HaloWriteTransport(
-                ssl_context=ssl_context,
-                default_headers=session.headers,
-                trust_env=session.trust_env,
+            write_transport=(
+                None
+                if is_sso_read_only
+                else HaloWriteTransport(
+                    ssl_context=ssl_context,
+                    default_headers=session.headers,
+                    trust_env=session.trust_env,
+                )
             ),
             on_token_update=writer.persist,
         )
@@ -141,7 +150,11 @@ async def async_setup_entry(hass, entry) -> bool:
         entry.async_on_unload(entry.add_update_listener(_async_entry_updated))
         await hass.config_entries.async_forward_entry_setups(
             entry,
-            [Platform(p) for p in PLATFORMS],
+            [
+                Platform(p)
+                for p in PLATFORMS
+                if not (is_sso_read_only and p in ("button", "switch"))
+            ],
         )
 
         known_collar_ids = {
