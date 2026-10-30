@@ -197,6 +197,25 @@ def handle_callback(uri: str, path: Path) -> int:
         return 1
 
 
+def read_callback_line(connection: socket.socket) -> bytes | None:
+    """Read one bounded callback line even when socket data arrives in pieces."""
+    data = bytearray()
+    while len(data) <= MAX_CALLBACK:
+        chunk = connection.recv(MAX_CALLBACK + 1 - len(data))
+        if not chunk:
+            return None
+        data.extend(chunk)
+        if b"\n" in chunk:
+            if (
+                len(data) > MAX_CALLBACK
+                or not data.endswith(b"\n")
+                or data.count(b"\n") != 1
+            ):
+                return None
+            return bytes(data[:-1])
+    return None
+
+
 def run_live(
     *, open_browser=webbrowser.open, callback_folder: Path | None = None,
     opener=None, vault_path: Path | None = None, vault_passphrase: str | None = None,
@@ -229,12 +248,18 @@ def run_live(
                     break
                 with connection:
                     connection.settimeout(4)
-                    data = connection.recv(MAX_CALLBACK + 1)
-                    if len(data) > MAX_CALLBACK or not data.endswith(b"\n"):
-                        connection.sendall(b"rejected")
+                    try:
+                        callback_bytes = read_callback_line(connection)
+                    except OSError:
+                        continue
+                    if callback_bytes is None:
+                        try:
+                            connection.sendall(b"rejected")
+                        except OSError:
+                            pass
                         continue
                     try:
-                        raw_url = data[:-1].decode("utf-8")
+                        raw_url = callback_bytes.decode("utf-8")
                         code = validate_callback(raw_url, request)
                     except (UnicodeError, OAuthResponseError, ValueError):
                         connection.sendall(b"rejected")

@@ -190,6 +190,23 @@ class LiveSSOFeasibilityTests(unittest.TestCase):
         self.assertEqual([req.full_url for req, _ in self.opener.calls], [DISCOVERY_URL, JWKS_URL, TOKEN_URL])
         self.assertEqual(list(self.folder.iterdir()), [])
 
+    def test_fragmented_callback_stream_is_accepted(self):
+        from live_sso_feasibility import read_callback_line
+
+        class Chunks:
+            def __init__(self, chunks):
+                self.chunks = iter(chunks)
+
+            def recv(self, _limit):
+                return next(self.chunks, b"")
+
+        uri = b"haloapp://callback?code=synthetic&state=synthetic"
+        self.assertEqual(
+            read_callback_line(Chunks([uri[:10], uri[10:34], uri[34:] + b"\n"])), uri
+        )
+        self.assertIsNone(read_callback_line(Chunks([uri])))
+        self.assertIsNone(read_callback_line(Chunks([b"x" * 8192, b"\n"])))
+
     def test_real_looking_uri_rejected_without_listener(self):
         self.assertEqual(handle_callback(CALLBACK + "?code=looks-real&state=wrong", self.folder), 1)
         self.assertEqual(handle_callback("https://evil.invalid/?code=secret", self.folder), 2)
