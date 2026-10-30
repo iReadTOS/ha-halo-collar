@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import stat
+import subprocess
 import tempfile
 import threading
 import time
@@ -102,6 +103,55 @@ class LiveSSOFeasibilityTests(unittest.TestCase):
         with self.assertRaises(ProbeError):
             https_json("https://untrusted.invalid/sso", opener=self.opener)
         self.assertEqual(self.opener.calls, [])
+
+    def test_default_public_fetch_uses_curl_without_credentials(self):
+        public_response = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout=b'{"keys": [{"kty": "RSA"}]}', stderr=b""
+        )
+        with patch("live_sso_feasibility.subprocess.run", return_value=public_response) as runner:
+            result = https_json(JWKS_URL)
+        self.assertEqual(result, {"keys": [{"kty": "RSA"}]})
+        cmd = runner.call_args.args[0]
+        self.assertEqual(cmd[0], "curl")
+        self.assertEqual(cmd[-1], JWKS_URL)
+        self.assertIn("--fail", cmd)
+        self.assertNotIn("--location", cmd)
+        self.assertNotIn("--data", cmd)
+        self.assertNotIn("--user", cmd)
+        self.assertNotIn("client_secret", " ".join(cmd))
+
+    def test_curl_failure_is_sanitized_and_not_retried(self):
+        blocked = subprocess.CompletedProcess(
+            args=[], returncode=22, stdout=b"", stderr=b"private-provider-body"
+        )
+        with patch("live_sso_feasibility.subprocess.run", return_value=blocked) as runner:
+            with self.assertRaises(ProbeError) as ctx:
+                https_json(DISCOVERY_URL)
+        self.assertNotIn("private-provider-body", str(ctx.exception))
+        runner.assert_called_once()
+
+    def test_malformed_or_oversized_public_json_rejected(self):
+        for body in (b"not-json", b"[1]", b"X" * 131074):
+            with self.subTest(size=len(body)):
+                result = subprocess.CompletedProcess(args=[], returncode=0, stdout=body, stderr=b"")
+                with patch("live_sso_feasibility.subprocess.run", return_value=result):
+                    with self.assertRaises(ProbeError):
+                        https_json(JWKS_URL)
+
+    def test_token_post_keeps_original_python_transport(self):
+        class SimpleOpener:
+            def open(self, request, timeout):
+                assert request.full_url == TOKEN_URL
+                assert request.get_method() == "POST"
+                assert request.data is not None
+                return FakeHTTPResponse({"test": "synthetic"})
+
+        with patch("live_sso_feasibility.subprocess.run") as curl:
+            response = https_json(
+                TOKEN_URL, post={"grant_type": "synthetic"}, opener=SimpleOpener()
+            )
+        self.assertEqual(response, {"test": "synthetic"})
+        curl.assert_not_called()
 
     def test_unrecognized_keys_and_claims_do_not_pass(self):
         request = create_request(client_id=CLIENT_ID, redirect_uri=CALLBACK)

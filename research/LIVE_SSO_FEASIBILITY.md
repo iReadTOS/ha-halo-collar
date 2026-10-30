@@ -104,3 +104,17 @@ Do not merge this helper into the Home Assistant runtime or use it with
 real collars. A supported long-term solution requires Halo to approve an
 OAuth client and redirect for third-party use, plus secure token persistence,
 refresh, identity linking, and HA reauth handling.
+
+## Public discovery endpoint client compatibility
+
+The original `urllib` client returned HTTP 403 for both **public** OIDC
+metadata endpoints on one Fedora installation, although ordinary `curl`
+requests had previously succeeded. By default, the probe now uses the installed
+`curl` executable *only* for unauthenticated discovery and public signing-key
+GETs. It validates the exact issuer and endpoints after retrieval. This is not
+browser impersonation or an attempt to bypass token endpoint access controls.
+
+The actual `POST /connect/token` operation deliberately continues using the
+original Python HTTPS request. If that request is rejected, **stop**; do not
+retry with spoofed headers, cookies, or other clients to evade a block.
+Offline tests inject fake clients, and never run real curl or contact Halo.

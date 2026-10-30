@@ -18,6 +18,7 @@ import json
 import os
 import socket
 import stat
+import subprocess
 import sys
 import time
 import urllib.error
@@ -89,22 +90,46 @@ def https_json(url: str, *, post: dict[str, str] | None = None, opener=None) -> 
     """HTTPS requests only to exact trusted provider endpoints, no redirects."""
     if url not in (DISCOVERY_URL, JWKS_URL, TOKEN_URL):
         raise ProbeError("Unexpected identity-provider endpoint")
-    if opener is None:
-        opener = urllib.request.build_opener(NoRedirect())
-    data = None if post is None else urllib.parse.urlencode(post).encode("ascii")
-    headers = {"Accept": "application/json"}
-    if data is not None:
-        headers["Content-Type"] = "application/x-www-form-urlencoded"
-    request = urllib.request.Request(url, data=data, headers=headers, method="POST" if post is not None else "GET")
-    try:
-        with opener.open(request, timeout=15) as response:
-            status = response.status
-            raw = response.read(MAX_BODY + 1)
-    except urllib.error.HTTPError as exc:
-        # Do not print the provider's response body, which can include sensitive values.
-        raise ProbeError(f"Provider rejected the request (HTTP {exc.code})") from None
-    except (urllib.error.URLError, TimeoutError, OSError):
-        raise ProbeError("Provider request failed or timed out") from None
+    # Only publicly published, read-only metadata uses curl. This is a normal
+    # HTTPS GET, never a token request and never a credential-bearing command.
+    # An injected opener still supports fully mocked tests without network use.
+    if post is None and opener is None and url in (DISCOVERY_URL, JWKS_URL):
+        try:
+            completed = subprocess.run(
+                [
+                    "curl", "--fail", "--silent", "--show-error", "--max-time", "15",
+                    "--max-filesize", str(MAX_BODY + 1), "--proto", "=https",
+                    "--header", "Accept: application/json", url,
+                ],
+                capture_output=True,
+                check=False,
+                timeout=18,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            raise ProbeError("Public provider metadata request failed") from None
+        if completed.returncode != 0:
+            raise ProbeError("Public provider metadata request failed")
+        status = 200  # --fail makes non-2xx requests fail; JSON validated below.
+        raw = completed.stdout
+    else:
+        if opener is None:
+            opener = urllib.request.build_opener(NoRedirect())
+        data = None if post is None else urllib.parse.urlencode(post).encode("ascii")
+        headers = {"Accept": "application/json"}
+        if data is not None:
+            headers["Content-Type"] = "application/x-www-form-urlencoded"
+        request = urllib.request.Request(
+            url, data=data, headers=headers, method="POST" if post is not None else "GET"
+        )
+        try:
+            with opener.open(request, timeout=15) as response:
+                status = response.status
+                raw = response.read(MAX_BODY + 1)
+        except urllib.error.HTTPError as exc:
+            # Do not print the provider's response body, which can include sensitive values.
+            raise ProbeError(f"Provider rejected the request (HTTP {exc.code})") from None
+        except (urllib.error.URLError, TimeoutError, OSError):
+            raise ProbeError("Provider request failed or timed out") from None
     if status != 200 or len(raw) > MAX_BODY:
         raise ProbeError(f"Unexpected provider response (HTTP {status})")
     try:
