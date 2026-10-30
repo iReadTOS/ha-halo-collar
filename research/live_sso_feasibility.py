@@ -3,7 +3,7 @@
 This uses the mobile app's OAuth registration for a user-initiated, personal
 technical test. It is NOT an officially approved third-party OAuth client or
 Home Assistant login feature. It never accesses the collar API, never sends
-collar commands, and never persists access/refresh/ID tokens.
+collar commands, and persists access/refresh tokens ONLY with explicit encrypted-save opt-in.
 
 Desktop callback still briefly passes via process argv (%u); desktop custom
 URI schemes are not exclusive, even though PKCE and random state help protect
@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import getpass
 import json
 import os
 import socket
@@ -29,6 +30,9 @@ from pathlib import Path
 from typing import Any
 
 from oidc_identity import IDTokenValidationError, OIDC_ISSUER, verify_id_token
+from secure_token_bundle import (
+    TokenVaultError, default_bundle_path, prepare_destination, save_verified_bundle,
+)
 from sso_oauth import OAuthResponseError, create_request, validate_callback
 from token_exchange import TokenExchangeError, build_exchange_data, parse_token_response
 
@@ -156,15 +160,25 @@ def trusted_keys(*, opener=None) -> dict[str, Any]:
     return keys
 
 
-def token_exchange(code: str, request, *, client_secret: str, jwks: dict[str, Any], opener=None):
-    """Exchange once and verify an ID token; never persist/print token values."""
+def token_exchange(
+    code: str, request, *, client_secret: str, jwks: dict[str, Any],
+    opener=None, vault_path: Path | None = None, vault_passphrase: str | None = None,
+):
+    """Exchange once, verify ID token, and optionally encrypt verified tokens."""
     form = build_exchange_data(auth_request=request, authorization_code=code,
                                client_id=CLIENT_ID, client_secret=client_secret)
     payload = https_json(TOKEN_URL, post=form, opener=opener)
     tokens = parse_token_response(200, payload)
     identity = verify_id_token(tokens.id_token, jwks=jwks,
                                client_id=CLIENT_ID, expected_nonce=request.nonce)
-    # Only a boolean result is returned; tokens are dropped on return.
+    if vault_path is not None:
+        if vault_passphrase is None:
+            raise TokenVaultError("Missing passphrase; verified tokens were not saved")
+        save_verified_bundle(
+            vault_path, passphrase=vault_passphrase, identity=identity,
+            tokens=tokens, client_id=CLIENT_ID,
+        )
+    # Never return or print token contents. A successful save is done before PASS.
     return bool(identity.subject)
 
 
@@ -183,8 +197,11 @@ def handle_callback(uri: str, path: Path) -> int:
         return 1
 
 
-def run_live(*, open_browser=webbrowser.open, callback_folder: Path | None = None, opener=None) -> bool:
-    """Only called from explicit start command. Tokens and codes remain in memory."""
+def run_live(
+    *, open_browser=webbrowser.open, callback_folder: Path | None = None,
+    opener=None, vault_path: Path | None = None, vault_passphrase: str | None = None,
+) -> bool:
+    """Only called on explicit start; optional encrypted token escrow."""
     client_id, client_secret = _read_constants()
     jwks = trusted_keys(opener=opener)
     request = create_request(client_id=client_id, redirect_uri=CALLBACK,
@@ -200,7 +217,7 @@ def run_live(*, open_browser=webbrowser.open, callback_folder: Path | None = Non
         deadline = time.monotonic() + TIMEOUT
         try:
             print("Starting optional live test. Authenticate only if you choose to.", flush=True)
-            print("No collar APIs are called and no tokens will be saved.", flush=True)
+            print("No collar APIs are called. Tokens are encrypted only if saving was explicitly enabled.", flush=True)
             if not open_browser(request.authorization_url):
                 print("Open the authorization page manually in your browser if needed.", flush=True)
                 print("Do not copy its URL or callback into this chat.", flush=True)
@@ -225,9 +242,12 @@ def run_live(*, open_browser=webbrowser.open, callback_folder: Path | None = Non
                     connection.sendall(b"accepted")
                     # The browser callback has arrived and its random state matches.
                     # Stop listening before attempting the one-time code exchange.
-                    print("Matching callback received; checking token exchange without saving tokens.", flush=True)
-                    return token_exchange(code, request, client_secret=client_secret,
-                                          jwks=jwks, opener=opener)
+                    print("Matching callback received; verifying the one-time token exchange.", flush=True)
+                    return token_exchange(
+                        code, request, client_secret=client_secret, jwks=jwks,
+                        opener=opener, vault_path=vault_path,
+                        vault_passphrase=vault_passphrase,
+                    )
             raise ProbeError("No matching callback arrived before the test expired")
         finally:
             sock_path.unlink(missing_ok=True)
@@ -237,21 +257,39 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Opt-in Halo SSO feasibility research (not a HA integration)")
     parser.add_argument("command", choices=("start", "callback"))
     parser.add_argument("callback_uri", nargs="?")
+    parser.add_argument(
+        "--save-encrypted", action="store_true",
+        help="explicitly save verified tokens encrypted under your user data folder",
+    )
     args = parser.parse_args()
     try:
         if args.command == "callback":
-            if not args.callback_uri:
+            if not args.callback_uri or args.save_encrypted:
                 return 2
             return handle_callback(args.callback_uri, private_folder())
         if args.callback_uri:
             return 2
+        vault_path = None
+        vault_passphrase = None
+        if args.save_encrypted:
+            vault_path = default_bundle_path()
+            prepare_destination(vault_path)  # Checks before opening Halo login.
+            vault_passphrase = getpass.getpass("New vault passphrase (12+ chars): ")
+            confirm = getpass.getpass("Confirm vault passphrase: ")
+            if vault_passphrase != confirm or len(vault_passphrase) < 12:
+                raise ProbeError("Passphrases did not match or were too short")
+            print("Encrypted token escrow enabled. Do not lose your passphrase.")
         print("This test uses Halo's mobile OAuth registration, not a provider-approved third-party client.")
         print("You will be redirected to Halo/Apple if you voluntarily continue in the browser.")
-        success = run_live()
+        success = run_live(vault_path=vault_path, vault_passphrase=vault_passphrase)
         if success:
-            print("PASS: browser sign-in produced a valid Halo identity token. Tokens discarded.")
+            if vault_path is not None:
+                print("PASS: verified Halo identity; access/refresh tokens saved in private encrypted vault.")
+                print(f"Vault location: {vault_path}")
+            else:
+                print("PASS: browser sign-in produced a valid Halo identity token. Tokens discarded.")
         return 0 if success else 1
-    except (ProbeError, TokenExchangeError, IDTokenValidationError, ValueError) as exc:
+    except (ProbeError, TokenVaultError, TokenExchangeError, IDTokenValidationError, ValueError) as exc:
         print(f"STOP: {exc}", file=sys.stderr)
         return 1
 
