@@ -16,6 +16,8 @@ from .const import (
     CONF_EXPIRES_AT,
     CONF_REFRESH_TOKEN,
     CONF_SCAN_INTERVAL,
+    CONF_SSO_ISSUER,
+    CONF_SSO_SUBJECT,
     DEFAULT_API_BASE,
     DEFAULT_AUTH_BASE,
     DEFAULT_CLIENT_ID,
@@ -217,11 +219,25 @@ def _credentials(data: Mapping[str, Any]) -> _Credentials:
     )
 
 
+def _sso_lineage(entry) -> tuple[Any, ...] | None:
+    """Capture the SSO identity and client binding independently of rotating tokens."""
+    if entry.data.get(CONF_AUTH_METHOD) != SSO_VAULT_AUTH:
+        return None
+    return (
+        entry.unique_id,
+        entry.data.get(CONF_SSO_ISSUER),
+        entry.data.get(CONF_SSO_SUBJECT),
+        entry.data.get(CONF_CLIENT_ID),
+        entry.data.get(CONF_CLIENT_SECRET),
+    )
+
+
 class _TokenWriter:
     def __init__(self, hass, entry, credentials: _Credentials) -> None:
         self._hass = hass
         self._entry = entry
         self._head = credentials
+        self._sso_lineage = _sso_lineage(entry)
         self._live = True
 
     def retire(self) -> None:
@@ -230,6 +246,10 @@ class _TokenWriter:
     def persist(self, snapshot: Mapping[str, Any]) -> None:
         entry = self._entry
         if not self._live or self._hass.config_entries.async_get_entry(entry.entry_id) is not entry:
+            return
+        if self._sso_lineage is not None and _sso_lineage(entry) != self._sso_lineage:
+            # A refresh from an old SSO runtime must never persist on a changed identity.
+            self.retire()
             return
         if _credentials(entry.data) != self._head:
             self.retire()
