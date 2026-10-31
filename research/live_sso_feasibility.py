@@ -29,9 +29,13 @@ import webbrowser
 from pathlib import Path
 from typing import Any
 
-from oidc_identity import IDTokenValidationError, OIDC_ISSUER, verify_id_token
+from oidc_identity import OIDC_ISSUER, IDTokenValidationError, verify_id_token
+from safe_oauth_error_code import safe_oauth_error_code
 from secure_token_bundle import (
-    TokenVaultError, default_bundle_path, prepare_destination, save_verified_bundle,
+    TokenVaultError,
+    default_bundle_path,
+    prepare_destination,
+    save_verified_bundle,
 )
 from sso_oauth import OAuthResponseError, create_request, validate_callback
 from token_exchange import TokenExchangeError, build_exchange_data, parse_token_response
@@ -60,6 +64,7 @@ def _safe_rejection_hints(headers: object) -> str:
     intermediary may proxy or replace upstream responses. In particular,
     ``not_indicated`` does not rule out a WAF or other access control.
     """
+
     def safe_header(name: str) -> str:
         getter = getattr(headers, "get", None)
         if not callable(getter):
@@ -91,8 +96,11 @@ def private_folder() -> Path:
     path = root / "halo-sso-research" / "live-probe"
     path.mkdir(parents=True, mode=0o700, exist_ok=True)
     info = path.lstat()
-    if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid()
-            or stat.S_IMODE(info.st_mode) != 0o700):
+    if (
+        not stat.S_ISDIR(info.st_mode)
+        or info.st_uid != os.getuid()
+        or stat.S_IMODE(info.st_mode) != 0o700
+    ):
         raise ProbeError("Private callback directory must belong to you and be mode 0700")
     return path
 
@@ -106,14 +114,22 @@ def _read_constants() -> tuple[str, str]:
         raise ProbeError("Can't read OAuth app defaults from integration const.py") from None
     values = {}
     for node in tree.body:
-        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+        ):
             name = node.targets[0].id
             if name in ("DEFAULT_CLIENT_ID", "DEFAULT_CLIENT_SECRET"):
                 try:
                     values[name] = ast.literal_eval(node.value)
                 except (ValueError, TypeError):
                     raise ProbeError("Invalid OAuth app defaults in const.py") from None
-    if values.get("DEFAULT_CLIENT_ID") != CLIENT_ID or not isinstance(values.get("DEFAULT_CLIENT_SECRET"), str) or not values["DEFAULT_CLIENT_SECRET"]:
+    if (
+        values.get("DEFAULT_CLIENT_ID") != CLIENT_ID
+        or not isinstance(values.get("DEFAULT_CLIENT_SECRET"), str)
+        or not values["DEFAULT_CLIENT_SECRET"]
+    ):
         raise ProbeError("Unexpected OAuth app client configuration")
     return CLIENT_ID, values["DEFAULT_CLIENT_SECRET"]
 
@@ -127,6 +143,20 @@ def https_json(url: str, *, post: dict[str, str] | None = None, opener=None) -> 
     """HTTPS requests only to exact trusted provider endpoints, no redirects."""
     if url not in (DISCOVERY_URL, JWKS_URL, TOKEN_URL):
         raise ProbeError("Unexpected identity-provider endpoint")
+    if post is not None and opener is None and url == TOKEN_URL:
+        # Native aiohttp backchannel for the optional research probe only.
+        # An injected opener retains the original urllib test path.
+        from aiohttp_token_transport import TokenTransportError, post_token_json
+
+        try:
+            return post_token_json(
+                url,
+                post,
+                classify_headers=_safe_rejection_hints,
+                classify_error=safe_oauth_error_code,
+            )
+        except TokenTransportError as exc:
+            raise ProbeError(str(exc)) from None
     # Only publicly published, read-only metadata uses curl. This is a normal
     # HTTPS GET, never a token request and never a credential-bearing command.
     # An injected opener still supports fully mocked tests without network use.
@@ -134,9 +164,19 @@ def https_json(url: str, *, post: dict[str, str] | None = None, opener=None) -> 
         try:
             completed = subprocess.run(
                 [
-                    "curl", "--fail", "--silent", "--show-error", "--max-time", "15",
-                    "--max-filesize", str(MAX_BODY + 1), "--proto", "=https",
-                    "--header", "Accept: application/json", url,
+                    "curl",
+                    "--fail",
+                    "--silent",
+                    "--show-error",
+                    "--max-time",
+                    "15",
+                    "--max-filesize",
+                    str(MAX_BODY + 1),
+                    "--proto",
+                    "=https",
+                    "--header",
+                    "Accept: application/json",
+                    url,
                 ],
                 capture_output=True,
                 check=False,
@@ -163,11 +203,12 @@ def https_json(url: str, *, post: dict[str, str] | None = None, opener=None) -> 
                 status = response.status
                 raw = response.read(MAX_BODY + 1)
         except urllib.error.HTTPError as exc:
-            # Do not read or log the response body, which may contain sensitive values.
-            # Hints use a small allowlist of classifications, not raw headers.
+            # Read at most a bounded body from the token endpoint, then emit
+            # only an allowlisted OAuth error category. Never print raw JSON.
+            category = safe_oauth_error_code(exc) if url == TOKEN_URL else "not_applicable"
             raise ProbeError(
                 f"Provider rejected the request (HTTP {exc.code}; "
-                f"{_safe_rejection_hints(exc.headers)})"
+                f"{_safe_rejection_hints(exc.headers)}; oauth_error={category})"
             ) from None
         except (urllib.error.URLError, TimeoutError, OSError):
             raise ProbeError("Provider request failed or timed out") from None
@@ -184,12 +225,14 @@ def https_json(url: str, *, post: dict[str, str] | None = None, opener=None) -> 
 
 def trusted_keys(*, opener=None) -> dict[str, Any]:
     metadata = https_json(DISCOVERY_URL, opener=opener)
-    if (metadata.get("issuer") != OIDC_ISSUER
-            or metadata.get("jwks_uri") != JWKS_URL
-            or metadata.get("authorization_endpoint") != AUTHORIZE_URL
-            or metadata.get("token_endpoint") != TOKEN_URL
-            or "RS256" not in metadata.get("id_token_signing_alg_values_supported", [])
-            or "S256" not in metadata.get("code_challenge_methods_supported", [])):
+    if (
+        metadata.get("issuer") != OIDC_ISSUER
+        or metadata.get("jwks_uri") != JWKS_URL
+        or metadata.get("authorization_endpoint") != AUTHORIZE_URL
+        or metadata.get("token_endpoint") != TOKEN_URL
+        or "RS256" not in metadata.get("id_token_signing_alg_values_supported", [])
+        or "S256" not in metadata.get("code_challenge_methods_supported", [])
+    ):
         raise ProbeError("Provider discovery did not match trusted Halo endpoints")
     keys = https_json(JWKS_URL, opener=opener)
     if not isinstance(keys.get("keys"), list) or not keys["keys"]:
@@ -198,22 +241,36 @@ def trusted_keys(*, opener=None) -> dict[str, Any]:
 
 
 def token_exchange(
-    code: str, request, *, client_secret: str, jwks: dict[str, Any],
-    opener=None, vault_path: Path | None = None, vault_passphrase: str | None = None,
+    code: str,
+    request,
+    *,
+    client_secret: str,
+    jwks: dict[str, Any],
+    opener=None,
+    vault_path: Path | None = None,
+    vault_passphrase: str | None = None,
 ):
     """Exchange once, verify ID token, and optionally encrypt verified tokens."""
-    form = build_exchange_data(auth_request=request, authorization_code=code,
-                               client_id=CLIENT_ID, client_secret=client_secret)
+    form = build_exchange_data(
+        auth_request=request,
+        authorization_code=code,
+        client_id=CLIENT_ID,
+        client_secret=client_secret,
+    )
     payload = https_json(TOKEN_URL, post=form, opener=opener)
     tokens = parse_token_response(200, payload)
-    identity = verify_id_token(tokens.id_token, jwks=jwks,
-                               client_id=CLIENT_ID, expected_nonce=request.nonce)
+    identity = verify_id_token(
+        tokens.id_token, jwks=jwks, client_id=CLIENT_ID, expected_nonce=request.nonce
+    )
     if vault_path is not None:
         if vault_passphrase is None:
             raise TokenVaultError("Missing passphrase; verified tokens were not saved")
         save_verified_bundle(
-            vault_path, passphrase=vault_passphrase, identity=identity,
-            tokens=tokens, client_id=CLIENT_ID,
+            vault_path,
+            passphrase=vault_passphrase,
+            identity=identity,
+            tokens=tokens,
+            client_id=CLIENT_ID,
         )
     # Never return or print token contents. A successful save is done before PASS.
     return bool(identity.subject)
@@ -243,25 +300,29 @@ def read_callback_line(connection: socket.socket) -> bytes | None:
             return None
         data.extend(chunk)
         if b"\n" in chunk:
-            if (
-                len(data) > MAX_CALLBACK
-                or not data.endswith(b"\n")
-                or data.count(b"\n") != 1
-            ):
+            if len(data) > MAX_CALLBACK or not data.endswith(b"\n") or data.count(b"\n") != 1:
                 return None
             return bytes(data[:-1])
     return None
 
 
 def run_live(
-    *, open_browser=webbrowser.open, callback_folder: Path | None = None,
-    opener=None, vault_path: Path | None = None, vault_passphrase: str | None = None,
+    *,
+    open_browser=webbrowser.open,
+    callback_folder: Path | None = None,
+    opener=None,
+    vault_path: Path | None = None,
+    vault_passphrase: str | None = None,
 ) -> bool:
     """Only called on explicit start; optional encrypted token escrow."""
     client_id, client_secret = _read_constants()
     jwks = trusted_keys(opener=opener)
-    request = create_request(client_id=client_id, redirect_uri=CALLBACK,
-                             authorization_endpoint=AUTHORIZE_URL, scope=SCOPE)
+    request = create_request(
+        client_id=client_id,
+        redirect_uri=CALLBACK,
+        authorization_endpoint=AUTHORIZE_URL,
+        scope=SCOPE,
+    )
     folder = callback_folder or private_folder()
     sock_path = folder / "callback.sock"
     if sock_path.exists() or sock_path.is_symlink():
@@ -273,7 +334,11 @@ def run_live(
         deadline = time.monotonic() + TIMEOUT
         try:
             print("Starting optional live test. Authenticate only if you choose to.", flush=True)
-            print("No collar APIs are called. Tokens are encrypted only if saving was explicitly enabled.", flush=True)
+            print(
+                "No collar APIs are called. Tokens are encrypted only if saving was "
+                "explicitly enabled.",
+                flush=True,
+            )
             if not open_browser(request.authorization_url):
                 print("Open the authorization page manually in your browser if needed.", flush=True)
                 print("Do not copy its URL or callback into this chat.", flush=True)
@@ -281,7 +346,7 @@ def run_live(
                 listener.settimeout(max(0.1, deadline - time.monotonic()))
                 try:
                     connection, _ = listener.accept()
-                except socket.timeout:
+                except TimeoutError:
                     break
                 with connection:
                     connection.settimeout(4)
@@ -304,10 +369,17 @@ def run_live(
                     connection.sendall(b"accepted")
                     # The browser callback has arrived and its random state matches.
                     # Stop listening before attempting the one-time code exchange.
-                    print("Matching callback received; verifying the one-time token exchange.", flush=True)
+                    print(
+                        "Matching callback received; verifying the one-time token exchange.",
+                        flush=True,
+                    )
                     return token_exchange(
-                        code, request, client_secret=client_secret, jwks=jwks,
-                        opener=opener, vault_path=vault_path,
+                        code,
+                        request,
+                        client_secret=client_secret,
+                        jwks=jwks,
+                        opener=opener,
+                        vault_path=vault_path,
                         vault_passphrase=vault_passphrase,
                     )
             raise ProbeError("No matching callback arrived before the test expired")
@@ -316,11 +388,14 @@ def run_live(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Opt-in Halo SSO feasibility research (not a HA integration)")
+    parser = argparse.ArgumentParser(
+        description="Opt-in Halo SSO feasibility research (not a HA integration)"
+    )
     parser.add_argument("command", choices=("start", "callback"))
     parser.add_argument("callback_uri", nargs="?")
     parser.add_argument(
-        "--save-encrypted", action="store_true",
+        "--save-encrypted",
+        action="store_true",
         help="explicitly save verified tokens encrypted under your user data folder",
     )
     args = parser.parse_args()
@@ -341,17 +416,31 @@ def main() -> int:
             if vault_passphrase != confirm or len(vault_passphrase) < 12:
                 raise ProbeError("Passphrases did not match or were too short")
             print("Encrypted token escrow enabled. Do not lose your passphrase.")
-        print("This test uses Halo's mobile OAuth registration, not a provider-approved third-party client.")
+        print(
+            "This test uses Halo's mobile OAuth registration, not a "
+            "provider-approved third-party client."
+        )
         print("You will be redirected to Halo/Apple if you voluntarily continue in the browser.")
         success = run_live(vault_path=vault_path, vault_passphrase=vault_passphrase)
         if success:
             if vault_path is not None:
-                print("PASS: verified Halo identity; access/refresh tokens saved in private encrypted vault.")
+                print(
+                    "PASS: verified Halo identity; access/refresh tokens saved in "
+                    "private encrypted vault."
+                )
                 print(f"Vault location: {vault_path}")
             else:
-                print("PASS: browser sign-in produced a valid Halo identity token. Tokens discarded.")
+                print(
+                    "PASS: browser sign-in produced a valid Halo identity token. Tokens discarded."
+                )
         return 0 if success else 1
-    except (ProbeError, TokenVaultError, TokenExchangeError, IDTokenValidationError, ValueError) as exc:
+    except (
+        ProbeError,
+        TokenVaultError,
+        TokenExchangeError,
+        IDTokenValidationError,
+        ValueError,
+    ) as exc:
         print(f"STOP: {exc}", file=sys.stderr)
         return 1
 
