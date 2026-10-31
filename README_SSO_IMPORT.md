@@ -1,36 +1,32 @@
 # Experimental Halo SSO encrypted-vault import for Home Assistant
 
-**Status:** staged experimental importer. Does not enable third-party Halo OAuth.
-Original email/password setup stays supported. Import is optional and manual.
-**Do not install in production Home Assistant until the pinned HA suite passes,
-and until you are comfortable with the unsupported provider/client status.**
+**Status:** Experimental, unofficial Sign in with Apple support.
+The original email/password login and its opt-in write controls remain supported.
+Imported SSO entries deliberately disable write controls.
 
-The prior browser feasibility probe can, *only if Halo accepts a real OAuth exchange*,
-write `~/.local/share/halo-sso-research/verified-sso.halo-vault` after ID-token
-signature and nonce verification. This package creates an HA config flow for that
-vault. The current browser login may fail at Halo's token endpoint with HTTP 403.
-We cannot guarantee first-try authentication, refresh, or continued account access.
+**Provider limitation:** This uses Halo's mobile OAuth client registration,
+not an approved third-party integration registration. Continued access and
+compatibility are not guaranteed. Obtain account-owner consent and maintain
+a protected Home Assistant backup.
 
-## Local installation (source only; no HA deployment)
+## Verified results
 
-In the `experiment/browser-sso` branch, from repo root:
+A real Sign in with Apple browser authentication succeeded using an OAuth
+authorization-code exchange through `aiohttp`. OIDC identity verification,
+encrypted vault creation, and Home Assistant vault import also succeeded.
 
-```sh
-unzip -o ~/Downloads/halo_ha_vault_importer.zip -d .
-python3 install_sso_vault.py
-uv sync --extra dev
-uv run pytest -q
-uv run --isolated --python /usr/bin/python3 \
-  --with-requirements requirements_test_ha_stable.txt pytest -q
-```
+In the no-collar test account, Home Assistant successfully refreshed OAuth
+credentials, persisted the rotated credentials, and recovered after multiple
+Core restarts. The isolated Home Assistant test suite passed 551 tests.
 
-The installer verifies that the existing source matches expected anchors before
-modifying tracked integration files, compiles edited Python first, and adds
-cryptography to the development-test dependencies. Review
-`git diff`, and **do not install in production HA yet**. Leave the root-level
-installer out of commits; it only applies source modifications.
+Live telemetry for paired collars has not yet been validated. The old
+`urllib` HTTP 403 issue was resolved for the tested exchange by using
+`aiohttp`, but the underlying transport difference remains unconfirmed.
 
-## After a successful, account-owner-approved login (future, NOT required now)
+## Importing encrypted credentials into Home Assistant
+
+This beta uses a manual encrypted-vault handoff. It does not yet provide
+a native browser login inside Home Assistant.
 
 The vault stays on Fedora, and is not placed in Git. To copy only its **encrypted**
 contents into HA, run locally:
