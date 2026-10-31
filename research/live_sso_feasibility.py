@@ -53,6 +53,39 @@ class ProbeError(Exception):
     """Safe-to-display error. Never contain credential, code, URL or token."""
 
 
+def _safe_rejection_hints(headers: object) -> str:
+    """Classify an HTTP error from allowlisted signals, never exposing values.
+
+    These hints cannot establish the origin of an HTTP 403 conclusively: an
+    intermediary may proxy or replace upstream responses. In particular,
+    ``not_indicated`` does not rule out a WAF or other access control.
+    """
+    def safe_header(name: str) -> str:
+        getter = getattr(headers, "get", None)
+        if not callable(getter):
+            return ""
+        try:
+            value = getter(name, "")
+        except (TypeError, ValueError):
+            return ""
+        return value if isinstance(value, str) else ""
+
+    media_type = safe_header("Content-Type").split(";", 1)[0].strip().casefold()
+    if media_type == "text/html":
+        response_kind = "html"
+    elif media_type == "application/json" or media_type.endswith("+json"):
+        response_kind = "json"
+    else:
+        response_kind = "other_or_unknown"
+    challenge = safe_header("cf-mitigated").strip().casefold() == "challenge"
+    server_cf = safe_header("Server").strip().casefold() == "cloudflare"
+    return (
+        f"response={response_kind}; "
+        f"cf_challenge={'indicated' if challenge else 'not_indicated'}; "
+        f"cf_server={'indicated' if server_cf else 'not_indicated'}"
+    )
+
+
 def private_folder() -> Path:
     root = Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache")))
     path = root / "halo-sso-research" / "live-probe"
@@ -130,8 +163,12 @@ def https_json(url: str, *, post: dict[str, str] | None = None, opener=None) -> 
                 status = response.status
                 raw = response.read(MAX_BODY + 1)
         except urllib.error.HTTPError as exc:
-            # Do not print the provider's response body, which can include sensitive values.
-            raise ProbeError(f"Provider rejected the request (HTTP {exc.code})") from None
+            # Do not read or log the response body, which may contain sensitive values.
+            # Hints use a small allowlist of classifications, not raw headers.
+            raise ProbeError(
+                f"Provider rejected the request (HTTP {exc.code}; "
+                f"{_safe_rejection_hints(exc.headers)})"
+            ) from None
         except (urllib.error.URLError, TimeoutError, OSError):
             raise ProbeError("Provider request failed or timed out") from None
     if status != 200 or len(raw) > MAX_BODY:
