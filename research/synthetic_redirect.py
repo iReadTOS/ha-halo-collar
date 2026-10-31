@@ -52,7 +52,9 @@ def create_session(folder: Path, *, now: float | None = None) -> str:
         raise RuntimeError("Previous demo is pending; use 'clear' before restarting")
     (folder / "status.txt").unlink(missing_ok=True)
     state = secrets.token_urlsafe(32)
-    _write_private(pending, json.dumps({"state": state, "created": time.time() if now is None else now}))
+    _write_private(
+        pending, json.dumps({"state": state, "created": time.time() if now is None else now})
+    )
     return state
 
 
@@ -90,7 +92,11 @@ def receive_callback(folder: Path, url: str, *, now: float | None = None) -> str
             valid = False
         else:
             (folder / "consumed.json").unlink(missing_ok=True)
-    result = "PASS: one-time synthetic HTTP redirect callback received" if valid else "REJECT: callback was not an active synthetic test"
+    result = (
+        "PASS: one-time synthetic HTTP redirect callback received"
+        if valid
+        else "REJECT: callback was not an active synthetic test"
+    )
     _write_private(status, result + "\n")
     return result
 
@@ -112,7 +118,7 @@ def make_handler(state: str):
                     "<p>This test redirects to a fake <code>haloapp://</code> callback.</p>"
                     "<p><a href='/redirect'>Start synthetic OAuth redirect</a></p>"
                     "<p>No account credentials, tokens, or remote websites are involved.</p>"
-                ).encode("utf-8")
+                ).encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(len(html)))
@@ -163,7 +169,10 @@ def main() -> int:
             return 1
         server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(state))
         print(f"Open in Brave: http://127.0.0.1:{server.server_port}/", flush=True)
-        print("Click the link on that page, approve the SYNTHETIC handler, then check status.", flush=True)
+        print(
+            "Click the link on that page, approve the SYNTHETIC handler, then check status.",
+            flush=True,
+        )
         print("Press Ctrl+C here when finished.", flush=True)
         try:
             server.serve_forever()

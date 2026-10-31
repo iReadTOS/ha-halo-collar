@@ -57,8 +57,10 @@ class TokenExchangeTests(unittest.IsolatedAsyncioTestCase):
         self.auth = create_request(
             client_id="halo.app.android", redirect_uri="https://example.invalid/callback"
         )
-        self.callback = self.auth.redirect_uri + "?" + urlencode(
-            {"code": "synthetic-code-secret", "state": self.auth.state}
+        self.callback = (
+            self.auth.redirect_uri
+            + "?"
+            + urlencode({"code": "synthetic-code-secret", "state": self.auth.state})
         )
         self.session = FakeSession(FakeResponse(payload=synthetic_tokens()))
 
@@ -102,7 +104,9 @@ class TokenExchangeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.session.calls, [])
 
     async def test_provider_error_does_not_expose_response(self):
-        self.session.response = FakeResponse(status=403, payload={"error": "private-sensitive-text"})
+        self.session.response = FakeResponse(
+            status=403, payload={"error": "private-sensitive-text"}
+        )
         with self.assertRaises(TokenExchangeError) as context:
             await exchange_synthetic_callback(
                 self.session,
@@ -160,7 +164,9 @@ class TokenExchangeTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(code_length=len(code)):
                 with self.assertRaises(TokenExchangeError):
                     build_exchange_data(
-                        auth_request=self.auth, authorization_code=code, client_id="halo.app.android"
+                        auth_request=self.auth,
+                        authorization_code=code,
+                        client_id="halo.app.android",
                     )
 
     def test_data_excludes_secret_when_not_supplied(self):

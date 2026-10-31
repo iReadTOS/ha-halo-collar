@@ -12,8 +12,12 @@ from desktop_callback_test import is_synthetic_callback, main, record_status
 
 class DesktopCallbackTests(unittest.TestCase):
     def test_valid_synthetic_callback(self):
-        self.assertTrue(is_synthetic_callback("haloapp://callback?code=synthetic-code&state=halo-research-demo"))
-        self.assertTrue(is_synthetic_callback("haloapp://callback?state=halo-research-demo&code=synthetic-code"))
+        self.assertTrue(
+            is_synthetic_callback("haloapp://callback?code=synthetic-code&state=halo-research-demo")
+        )
+        self.assertTrue(
+            is_synthetic_callback("haloapp://callback?state=halo-research-demo&code=synthetic-code")
+        )
 
     def test_refuses_real_or_altered_codes(self):
         for uri in (
@@ -45,10 +49,14 @@ class DesktopCallbackTests(unittest.TestCase):
 
     def test_cli_reports_only_success_or_failure(self):
         with patch("desktop_callback_test.record_status") as record:
-            self.assertEqual(main(["haloapp://callback?code=synthetic-code&state=halo-research-demo"]), 0)
+            self.assertEqual(
+                main(["haloapp://callback?code=synthetic-code&state=halo-research-demo"]), 0
+            )
             record.assert_called_once_with(True)
         with patch("desktop_callback_test.record_status") as record:
-            self.assertEqual(main(["haloapp://callback?code=real-secret&state=halo-research-demo"]), 1)
+            self.assertEqual(
+                main(["haloapp://callback?code=real-secret&state=halo-research-demo"]), 1
+            )
             record.assert_called_once_with(False)
 
 

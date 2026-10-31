@@ -24,7 +24,11 @@ from desktop_sso_session import (
 
 
 def session_dir() -> Path:
-    return Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "halo-sso-research" / "desktop-session"
+    return (
+        Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
+        / "halo-sso-research"
+        / "desktop-session"
+    )
 
 
 def demo_handler(state: str):
@@ -88,7 +92,9 @@ def main() -> int:
             return 1
         server = ThreadingHTTPServer(("127.0.0.1", 0), demo_handler(request.state))
         print(f"Open in Brave: http://127.0.0.1:{server.server_port}/", flush=True)
-        print("Click 'Simulate authorization response' to start the synthetic redirect.", flush=True)
+        print(
+            "Click 'Simulate authorization response' to start the synthetic redirect.", flush=True
+        )
         print("Ctrl+C ends the local server. No remote network requests are made.", flush=True)
         try:
             server.serve_forever()

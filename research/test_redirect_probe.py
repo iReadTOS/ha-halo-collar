@@ -61,22 +61,29 @@ class RedirectProbeTests(unittest.TestCase):
             self.assertNotEqual(a[field], b[field])
 
     def test_does_not_follow_redirects(self):
-        self.assertIsNone(StopRedirects().redirect_request(None, None, 302, "", {}, "https://example.invalid"))
+        self.assertIsNone(
+            StopRedirects().redirect_request(None, None, 302, "", {}, "https://example.invalid")
+        )
 
     def test_classifies_explicit_invalid_redirect(self):
         self.assertEqual(
-            classify_response(400, b'<h1>Invalid redirect_uri</h1>'),
+            classify_response(400, b"<h1>Invalid redirect_uri</h1>"),
             ProbeResult(400, "redirect_rejected"),
         )
 
     def test_classifies_unauthorized_client(self):
-        self.assertEqual(classify_response(400, b'{"error":"unauthorized_client"}').signal, "client_not_authorized")
+        self.assertEqual(
+            classify_response(400, b'{"error":"unauthorized_client"}').signal,
+            "client_not_authorized",
+        )
 
     def test_does_not_claim_login_redirect_proves_registration(self):
         self.assertEqual(classify_response(302, b"").signal, "redirect_not_followed_unverified")
 
     def test_does_not_claim_http_200_proves_registration(self):
-        self.assertEqual(classify_response(200, b"<html>Sign in</html>").signal, "non_error_unverified")
+        self.assertEqual(
+            classify_response(200, b"<html>Sign in</html>").signal, "non_error_unverified"
+        )
 
     def test_generic_bad_request_not_misclassified_as_invalid_redirect(self):
         self.assertEqual(classify_response(400, b"bad scope").signal, "rejected_reason_unknown")

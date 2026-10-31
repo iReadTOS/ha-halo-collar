@@ -15,14 +15,23 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 
 import jwt
 from cryptography.hazmat.primitives.asymmetric import rsa
-
 from live_sso_feasibility import (
-    AUTHORIZE_URL, CALLBACK, CLIENT_ID, DISCOVERY_URL, JWKS_URL,
-    TOKEN_URL, NoRedirect, ProbeError, handle_callback, https_json,
-    run_live, token_exchange, trusted_keys,
+    AUTHORIZE_URL,
+    CALLBACK,
+    CLIENT_ID,
+    DISCOVERY_URL,
+    JWKS_URL,
+    TOKEN_URL,
+    NoRedirect,
+    ProbeError,
+    handle_callback,
+    https_json,
+    run_live,
+    token_exchange,
+    trusted_keys,
 )
-from sso_oauth import create_request
 from oidc_identity import OIDC_ISSUER
+from sso_oauth import create_request
 
 
 class FakeHTTPResponse:
@@ -51,14 +60,16 @@ class FakeOpener:
     def open(self, request, timeout):
         self.calls.append((request, timeout))
         if request.full_url == DISCOVERY_URL:
-            return FakeHTTPResponse({
-                "issuer": OIDC_ISSUER,
-                "jwks_uri": JWKS_URL,
-                "authorization_endpoint": AUTHORIZE_URL,
-                "token_endpoint": TOKEN_URL,
-                "id_token_signing_alg_values_supported": ["RS256"],
-                "code_challenge_methods_supported": ["plain", "S256"],
-            })
+            return FakeHTTPResponse(
+                {
+                    "issuer": OIDC_ISSUER,
+                    "jwks_uri": JWKS_URL,
+                    "authorization_endpoint": AUTHORIZE_URL,
+                    "token_endpoint": TOKEN_URL,
+                    "id_token_signing_alg_values_supported": ["RS256"],
+                    "code_challenge_methods_supported": ["plain", "S256"],
+                }
+            )
         if request.full_url == JWKS_URL:
             return FakeHTTPResponse({"keys": [self.jwk]})
         if request.full_url == TOKEN_URL:
@@ -70,15 +81,28 @@ class FakeOpener:
             assert values["code"] == ["synthetic-temporary-code"]
             assert len(values["code_verifier"][0]) >= 43
             now = int(time.time())
-            id_token = jwt.encode({
-                "iss": OIDC_ISSUER, "aud": CLIENT_ID,
-                "sub": "fake-subject", "nonce": self.nonce_provider(),
-                "iat": now, "exp": now + 3600,
-            }, self.key, algorithm="RS256", headers={"kid": "synthetic-signing-key"})
-            return FakeHTTPResponse({"access_token": "private-access",
-                                     "refresh_token": "private-refresh",
-                                     "id_token": id_token,
-                                     "expires_in": 3600, "token_type": "Bearer"})
+            id_token = jwt.encode(
+                {
+                    "iss": OIDC_ISSUER,
+                    "aud": CLIENT_ID,
+                    "sub": "fake-subject",
+                    "nonce": self.nonce_provider(),
+                    "iat": now,
+                    "exp": now + 3600,
+                },
+                self.key,
+                algorithm="RS256",
+                headers={"kid": "synthetic-signing-key"},
+            )
+            return FakeHTTPResponse(
+                {
+                    "access_token": "private-access",
+                    "refresh_token": "private-refresh",
+                    "id_token": id_token,
+                    "expires_in": 3600,
+                    "token_type": "Bearer",
+                }
+            )
         raise AssertionError("Unexpected outbound request")
 
 
@@ -97,7 +121,9 @@ class LiveSSOFeasibilityTests(unittest.TestCase):
     def test_public_metadata_and_keys_have_exact_endpoints(self):
         keys = trusted_keys(opener=self.opener)
         self.assertEqual(len(keys["keys"]), 1)
-        self.assertEqual([call[0].full_url for call in self.opener.calls], [DISCOVERY_URL, JWKS_URL])
+        self.assertEqual(
+            [call[0].full_url for call in self.opener.calls], [DISCOVERY_URL, JWKS_URL]
+        )
 
     def test_only_approved_provider_urls_possible(self):
         with self.assertRaises(ProbeError):
@@ -158,8 +184,13 @@ class LiveSSOFeasibilityTests(unittest.TestCase):
         self.nonce = "wrong-nonce"
         keys = trusted_keys(opener=self.opener)
         with self.assertRaises(ValueError):
-            token_exchange("synthetic-temporary-code", request, client_secret="synthetic-app-client-secret",
-                           jwks=keys, opener=self.opener)
+            token_exchange(
+                "synthetic-temporary-code",
+                request,
+                client_secret="synthetic-app-client-secret",
+                jwks=keys,
+                opener=self.opener,
+            )
 
     def test_complete_browser_handoff_and_signed_identity_mocked(self):
         received = []
@@ -168,9 +199,16 @@ class LiveSSOFeasibilityTests(unittest.TestCase):
         def fake_browser(authorization_url):
             query = parse_qs(urlsplit(authorization_url).query)
             self.nonce = query["nonce"][0]
-            callback = CALLBACK + "?" + urlencode({
-                "state": query["state"][0], "code": "synthetic-temporary-code",
-            })
+            callback = (
+                CALLBACK
+                + "?"
+                + urlencode(
+                    {
+                        "state": query["state"][0],
+                        "code": "synthetic-temporary-code",
+                    }
+                )
+            )
 
             def background():
                 # Callback process starts after the socket is ready.
@@ -181,13 +219,20 @@ class LiveSSOFeasibilityTests(unittest.TestCase):
             thread.start()
             return True
 
-        with patch("live_sso_feasibility._read_constants", return_value=(CLIENT_ID, "synthetic-app-client-secret")):
-            success = run_live(open_browser=fake_browser, callback_folder=self.folder, opener=self.opener)
+        with patch(
+            "live_sso_feasibility._read_constants",
+            return_value=(CLIENT_ID, "synthetic-app-client-secret"),
+        ):
+            success = run_live(
+                open_browser=fake_browser, callback_folder=self.folder, opener=self.opener
+            )
         holder[0].join(2)
         self.assertTrue(success)
         self.assertEqual(received, [0])
         self.assertFalse((self.folder / "callback.sock").exists())
-        self.assertEqual([req.full_url for req, _ in self.opener.calls], [DISCOVERY_URL, JWKS_URL, TOKEN_URL])
+        self.assertEqual(
+            [req.full_url for req, _ in self.opener.calls], [DISCOVERY_URL, JWKS_URL, TOKEN_URL]
+        )
         self.assertEqual(list(self.folder.iterdir()), [])
 
     def test_fragmented_callback_stream_is_accepted(self):
@@ -201,9 +246,7 @@ class LiveSSOFeasibilityTests(unittest.TestCase):
                 return next(self.chunks, b"")
 
         uri = b"haloapp://callback?code=synthetic&state=synthetic"
-        self.assertEqual(
-            read_callback_line(Chunks([uri[:10], uri[10:34], uri[34:] + b"\n"])), uri
-        )
+        self.assertEqual(read_callback_line(Chunks([uri[:10], uri[10:34], uri[34:] + b"\n"])), uri)
         self.assertIsNone(read_callback_line(Chunks([uri])))
         self.assertIsNone(read_callback_line(Chunks([b"x" * 8192, b"\n"])))
 
@@ -214,6 +257,7 @@ class LiveSSOFeasibilityTests(unittest.TestCase):
 
     def test_callback_socket_private_while_listening(self):
         import socket
+
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
             path = self.folder / "callback.sock"
             sock.bind(str(path))
@@ -222,7 +266,9 @@ class LiveSSOFeasibilityTests(unittest.TestCase):
             path.unlink()
 
     def test_never_follows_issuer_redirect(self):
-        self.assertIsNone(NoRedirect().redirect_request(None, None, 302, "", {}, "https://fake.invalid"))
+        self.assertIsNone(
+            NoRedirect().redirect_request(None, None, 302, "", {}, "https://fake.invalid")
+        )
 
 
 if __name__ == "__main__":

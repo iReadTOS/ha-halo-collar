@@ -16,8 +16,10 @@ class SsoOAuthTests(unittest.TestCase):
         )
 
     def callback(self, **params):
-        return self.request.redirect_uri + "?" + urlencode(
-            {"state": self.request.state, "code": "fake-code", **params}
+        return (
+            self.request.redirect_uri
+            + "?"
+            + urlencode({"state": self.request.state, "code": "fake-code", **params})
         )
 
     def test_pkce_matches_standard_challenge(self):

@@ -1,7 +1,7 @@
 """No Halo access: synthetic tokens and identities only."""
+
 from __future__ import annotations
 
-import os
 import stat
 import tempfile
 import unittest
@@ -17,11 +17,16 @@ class SecureTokenBundleTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.path = Path(self.tmp.name) / "private" / "verified-sso.halo-vault"
         self.identity = VerifiedOIDCIdentity(
-            issuer=OIDC_ISSUER, subject="synthetic-sub", email="fake@example.invalid", email_verified=True
+            issuer=OIDC_ISSUER,
+            subject="synthetic-sub",
+            email="fake@example.invalid",
+            email_verified=True,
         )
         self.tokens = OAuthTokens(
-            access_token="fake-access-123", refresh_token="fake-refresh-123",
-            id_token="fake-id-token", expires_in=3600.0
+            access_token="fake-access-123",
+            refresh_token="fake-refresh-123",
+            id_token="fake-id-token",
+            expires_in=3600.0,
         )
         self.passphrase = "this-is-a-long-test-passphrase"
 
@@ -30,8 +35,12 @@ class SecureTokenBundleTests(unittest.TestCase):
 
     def store(self):
         save_verified_bundle(
-            self.path, passphrase=self.passphrase, identity=self.identity,
-            tokens=self.tokens, client_id="halo.app.android", now=1800000000.0
+            self.path,
+            passphrase=self.passphrase,
+            identity=self.identity,
+            tokens=self.tokens,
+            client_id="halo.app.android",
+            now=1800000000.0,
         )
 
     def test_save_and_read_private_bundle(self):
@@ -92,7 +101,10 @@ class SecureTokenBundleTests(unittest.TestCase):
 
     def test_unverified_email_is_not_persisted(self):
         self.identity = VerifiedOIDCIdentity(
-            issuer=OIDC_ISSUER, subject="test-only", email="unverified@example.invalid", email_verified=False
+            issuer=OIDC_ISSUER,
+            subject="test-only",
+            email="unverified@example.invalid",
+            email_verified=False,
         )
         self.store()
         saved = load_bundle(self.path, passphrase=self.passphrase)
@@ -101,14 +113,24 @@ class SecureTokenBundleTests(unittest.TestCase):
 
     def test_short_passphrase_rejected_before_writing(self):
         with self.assertRaises(TokenVaultError):
-            save_verified_bundle(self.path, passphrase="too-short", identity=self.identity,
-                tokens=self.tokens, client_id="halo.app.android")
+            save_verified_bundle(
+                self.path,
+                passphrase="too-short",
+                identity=self.identity,
+                tokens=self.tokens,
+                client_id="halo.app.android",
+            )
         self.assertFalse(self.path.exists())
 
     def test_wrong_client_rejected(self):
         with self.assertRaises(TokenVaultError):
-            save_verified_bundle(self.path, passphrase=self.passphrase, identity=self.identity,
-                tokens=self.tokens, client_id="unknown-client")
+            save_verified_bundle(
+                self.path,
+                passphrase=self.passphrase,
+                identity=self.identity,
+                tokens=self.tokens,
+                client_id="unknown-client",
+            )
         self.assertFalse(self.path.exists())
 
 

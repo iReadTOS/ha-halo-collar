@@ -15,9 +15,8 @@ from threading import Thread
 from urllib.parse import parse_qs, urlencode, urlsplit
 
 import jwt
-from cryptography.hazmat.primitives.asymmetric import rsa
-
 from account_binding import prepare_synthetic_new_login
+from cryptography.hazmat.primitives.asymmetric import rsa
 from desktop_sso_demo import demo_handler
 from desktop_sso_session import (
     CALLBACK_URI,
@@ -65,8 +64,8 @@ class DesktopSSOSessionTests(unittest.IsolatedAsyncioTestCase):
         self.folder = Path(self.temp.name) / "private"
         self.t0 = 1_800_000_000.0
         self.request = new_session(self.folder, now=self.t0)
-        self.callback = CALLBACK_URI + "?" + urlencode(
-            {"code": SYNTHETIC_CODE, "state": self.request.state}
+        self.callback = (
+            CALLBACK_URI + "?" + urlencode({"code": SYNTHETIC_CODE, "state": self.request.state})
         )
 
     def tearDown(self):
@@ -106,7 +105,9 @@ class DesktopSSOSessionTests(unittest.IsolatedAsyncioTestCase):
 
     def test_real_looking_codes_and_extra_fields_rejected(self):
         candidates = [
-            CALLBACK_URI + "?" + urlencode({"code": "real-looking-secret", "state": self.request.state}),
+            CALLBACK_URI
+            + "?"
+            + urlencode({"code": "real-looking-secret", "state": self.request.state}),
             self.callback + "&code=synthetic-code",
             self.callback + "&unexpected=1",
             self.callback + "#fragment",
@@ -144,12 +145,22 @@ class DesktopSSOSessionTests(unittest.IsolatedAsyncioTestCase):
     def test_result_never_contains_code_nonce_or_verifier(self):
         complete_session(self.folder, self.callback, now=self.t0 + 1)
         status = (self.folder / "status.txt").read_text()
-        for secret in (SYNTHETIC_CODE, self.request.state, self.request.nonce, self.request.code_verifier):
+        for secret in (
+            SYNTHETIC_CODE,
+            self.request.state,
+            self.request.nonce,
+            self.request.code_verifier,
+        ):
             self.assertNotIn(secret, status)
 
     def test_simultaneous_callback_can_complete_only_once(self):
         with ThreadPoolExecutor(max_workers=6) as pool:
-            outcomes = list(pool.map(lambda _: complete_session(self.folder, self.callback, now=self.t0 + 1), range(6)))
+            outcomes = list(
+                pool.map(
+                    lambda _: complete_session(self.folder, self.callback, now=self.t0 + 1),
+                    range(6),
+                )
+            )
         self.assertEqual(sum(item is not None for item in outcomes), 1)
 
     def test_loopback_server_issues_real_http_302_without_remote_requests(self):
@@ -190,13 +201,15 @@ class DesktopSSOSessionTests(unittest.IsolatedAsyncioTestCase):
             "email_verified": True,
         }
         signed_id_token = jwt.encode(claims, key, algorithm="RS256", headers={"kid": "test-key"})
-        fake_session = FakeSession({
-            "access_token": "fake-access-token",
-            "refresh_token": "fake-refresh-token",
-            "id_token": signed_id_token,
-            "token_type": "Bearer",
-            "expires_in": 3600,
-        })
+        fake_session = FakeSession(
+            {
+                "access_token": "fake-access-token",
+                "refresh_token": "fake-refresh-token",
+                "id_token": signed_id_token,
+                "token_type": "Bearer",
+                "expires_in": 3600,
+            }
+        )
         completed = complete_session(self.folder, self.callback, now=self.t0 + 1)
         self.assertIsNotNone(completed)
         # Research helper posts only to fake_session; no real HTTP connection.

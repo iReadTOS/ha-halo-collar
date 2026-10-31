@@ -19,7 +19,6 @@ from typing import Any
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
-
 from oidc_identity import OIDC_ISSUER, VerifiedOIDCIdentity
 from token_exchange import OAuthTokens
 
@@ -33,7 +32,11 @@ class TokenVaultError(ValueError):
 
 
 def default_bundle_path() -> Path:
-    return Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share"))) / "halo-sso-research" / "verified-sso.halo-vault"
+    return (
+        Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share")))
+        / "halo-sso-research"
+        / "verified-sso.halo-vault"
+    )
 
 
 def _private_parent(path: Path) -> None:
@@ -41,9 +44,11 @@ def _private_parent(path: Path) -> None:
     try:
         parent.mkdir(parents=True, mode=0o700, exist_ok=True)
         meta = parent.lstat()
-        if (not stat.S_ISDIR(meta.st_mode)
-                or meta.st_uid != os.getuid()
-                or stat.S_IMODE(meta.st_mode) != 0o700):
+        if (
+            not stat.S_ISDIR(meta.st_mode)
+            or meta.st_uid != os.getuid()
+            or stat.S_IMODE(meta.st_mode) != 0o700
+        ):
             raise TokenVaultError("Token vault directory must be private (0700)")
     except OSError:
         raise TokenVaultError("Cannot access private token vault directory") from None
@@ -55,15 +60,23 @@ def _derive(passphrase: str, salt: bytes) -> bytes:
     return Scrypt(salt=salt, length=32, n=2**15, r=8, p=1).derive(passphrase.encode("utf-8"))
 
 
-def _payload(identity: VerifiedOIDCIdentity, tokens: OAuthTokens, client_id: str, now: float) -> dict[str, Any]:
-    if (not isinstance(identity, VerifiedOIDCIdentity)
-            or identity.issuer != OIDC_ISSUER
-            or not isinstance(identity.subject, str) or not identity.subject.strip()
-            or client_id != "halo.app.android"
-            or not isinstance(tokens, OAuthTokens)
-            or not isinstance(tokens.access_token, str) or not tokens.access_token
-            or not isinstance(tokens.refresh_token, str) or not tokens.refresh_token
-            or not isinstance(tokens.expires_in, (int, float)) or tokens.expires_in <= 60):
+def _payload(
+    identity: VerifiedOIDCIdentity, tokens: OAuthTokens, client_id: str, now: float
+) -> dict[str, Any]:
+    if (
+        not isinstance(identity, VerifiedOIDCIdentity)
+        or identity.issuer != OIDC_ISSUER
+        or not isinstance(identity.subject, str)
+        or not identity.subject.strip()
+        or client_id != "halo.app.android"
+        or not isinstance(tokens, OAuthTokens)
+        or not isinstance(tokens.access_token, str)
+        or not tokens.access_token
+        or not isinstance(tokens.refresh_token, str)
+        or not tokens.refresh_token
+        or not isinstance(tokens.expires_in, (int, float))
+        or tokens.expires_in <= 60
+    ):
         raise TokenVaultError("Invalid verified login for vault")
     # We intentionally DO NOT save the ID token or its one-time authorization code.
     return {
@@ -85,10 +98,13 @@ def prepare_destination(path: Path) -> None:
     path = Path(path)
     _private_parent(path)
     if path.exists() or path.is_symlink():
-        raise TokenVaultError("Token vault already exists; existing credentials were not overwritten")
+        raise TokenVaultError(
+            "Token vault already exists; existing credentials were not overwritten"
+        )
     # Verify the private folder can actually create a file without pre-creating
     # the final vault. One disk-full/permission failure is caught before login.
     import tempfile
+
     try:
         fd, test_path = tempfile.mkstemp(prefix=".vault-preflight-", dir=path.parent)
         try:
@@ -103,8 +119,13 @@ def prepare_destination(path: Path) -> None:
 
 
 def save_verified_bundle(
-    path: Path, *, passphrase: str, identity: VerifiedOIDCIdentity,
-    tokens: OAuthTokens, client_id: str, now: float | None = None,
+    path: Path,
+    *,
+    passphrase: str,
+    identity: VerifiedOIDCIdentity,
+    tokens: OAuthTokens,
+    client_id: str,
+    now: float | None = None,
 ) -> None:
     """Encrypt and save once; never replace an existing bundle.
 
@@ -124,7 +145,9 @@ def save_verified_bundle(
     try:
         fd = os.open(path, flags, 0o600)
     except FileExistsError:
-        raise TokenVaultError("Token vault already exists; existing credentials were not overwritten") from None
+        raise TokenVaultError(
+            "Token vault already exists; existing credentials were not overwritten"
+        ) from None
     except OSError:
         raise TokenVaultError("Cannot create private token vault") from None
     try:
@@ -146,9 +169,12 @@ def load_bundle(path: Path, *, passphrase: str) -> dict[str, Any]:
         fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
         with os.fdopen(fd, "rb") as source:
             info = os.fstat(source.fileno())
-            if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
-                    or stat.S_IMODE(info.st_mode) != 0o600
-                    or info.st_size > _MAX_BUNDLE):
+            if (
+                not stat.S_ISREG(info.st_mode)
+                or info.st_uid != os.getuid()
+                or stat.S_IMODE(info.st_mode) != 0o600
+                or info.st_size > _MAX_BUNDLE
+            ):
                 raise TokenVaultError("Token vault file must be private (0600)")
             blob = source.read(_MAX_BUNDLE + 1)
     except (OSError, ValueError):
@@ -156,18 +182,27 @@ def load_bundle(path: Path, *, passphrase: str) -> dict[str, Any]:
     if not blob.startswith(_MAGIC) or len(blob) < len(_MAGIC) + 16 + 12 + 16:
         raise TokenVaultError("Unsupported or damaged token vault")
     cursor = len(_MAGIC)
-    salt, nonce, ciphertext = blob[cursor:cursor + 16], blob[cursor + 16:cursor + 28], blob[cursor + 28:]
+    salt, nonce, ciphertext = (
+        blob[cursor : cursor + 16],
+        blob[cursor + 16 : cursor + 28],
+        blob[cursor + 28 :],
+    )
     try:
         raw = AESGCM(_derive(passphrase, salt)).decrypt(nonce, ciphertext, _AAD)
         value = json.loads(raw)
-        if (not isinstance(value, dict)
-                or value.get("format") != 1
-                or value.get("issuer") != OIDC_ISSUER
-                or value.get("client_id") != "halo.app.android"
-                or not isinstance(value.get("subject"), str) or not value["subject"]
-                or not isinstance(value.get("access_token"), str) or not value["access_token"]
-                or not isinstance(value.get("refresh_token"), str) or not value["refresh_token"]
-                or type(value.get("expires_at")) not in (int, float)):
+        if (
+            not isinstance(value, dict)
+            or value.get("format") != 1
+            or value.get("issuer") != OIDC_ISSUER
+            or value.get("client_id") != "halo.app.android"
+            or not isinstance(value.get("subject"), str)
+            or not value["subject"]
+            or not isinstance(value.get("access_token"), str)
+            or not value["access_token"]
+            or not isinstance(value.get("refresh_token"), str)
+            or not value["refresh_token"]
+            or type(value.get("expires_at")) not in (int, float)
+        ):
             raise TokenVaultError("Invalid token vault contents")
         return value
     except (InvalidTag, UnicodeError, ValueError, TypeError, KeyError):
@@ -188,7 +223,10 @@ def check_bundle() -> int:
 
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description="Check a local research credential vault without exposing credentials")
+
+    parser = argparse.ArgumentParser(
+        description="Check a local research credential vault without exposing credentials"
+    )
     parser.add_argument("command", choices=("check",))
     args = parser.parse_args()
     raise SystemExit(check_bundle())

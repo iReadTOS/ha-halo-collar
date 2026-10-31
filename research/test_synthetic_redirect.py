@@ -5,9 +5,10 @@ from __future__ import annotations
 import http.client
 import stat
 import tempfile
-import time
 import unittest
+from http.server import ThreadingHTTPServer
 from pathlib import Path
+from threading import Thread
 from urllib.parse import urlencode
 
 from synthetic_redirect import (
@@ -18,8 +19,6 @@ from synthetic_redirect import (
     make_handler,
     receive_callback,
 )
-from http.server import ThreadingHTTPServer
-from threading import Thread
 
 
 class SyntheticRedirectTests(unittest.TestCase):
@@ -39,14 +38,22 @@ class SyntheticRedirectTests(unittest.TestCase):
         self.assertGreaterEqual(len(self.state), 40)
 
     def test_exact_fake_callback_passes_once(self):
-        self.assertTrue(receive_callback(self.folder, self.url, now=self.now + 1).startswith("PASS"))
-        self.assertTrue(receive_callback(self.folder, self.url, now=self.now + 2).startswith("REJECT"))
+        self.assertTrue(
+            receive_callback(self.folder, self.url, now=self.now + 1).startswith("PASS")
+        )
+        self.assertTrue(
+            receive_callback(self.folder, self.url, now=self.now + 2).startswith("REJECT")
+        )
         self.assertFalse((self.folder / "pending.json").exists())
 
     def test_wrong_state_does_not_consume_pending(self):
         invalid = CALLBACK + "?code=synthetic-code&state=wrong"
-        self.assertTrue(receive_callback(self.folder, invalid, now=self.now + 1).startswith("REJECT"))
-        self.assertTrue(receive_callback(self.folder, self.url, now=self.now + 2).startswith("PASS"))
+        self.assertTrue(
+            receive_callback(self.folder, invalid, now=self.now + 1).startswith("REJECT")
+        )
+        self.assertTrue(
+            receive_callback(self.folder, self.url, now=self.now + 2).startswith("PASS")
+        )
 
     def test_real_looking_code_and_extra_params_rejected(self):
         for url in (
@@ -57,14 +64,24 @@ class SyntheticRedirectTests(unittest.TestCase):
             self.url + "#fragment",
         ):
             with self.subTest(url_type=url.split("?")[0]):
-                self.assertTrue(receive_callback(self.folder, url, now=self.now + 1).startswith("REJECT"))
-        self.assertTrue(receive_callback(self.folder, self.url, now=self.now + 2).startswith("PASS"))
+                self.assertTrue(
+                    receive_callback(self.folder, url, now=self.now + 1).startswith("REJECT")
+                )
+        self.assertTrue(
+            receive_callback(self.folder, self.url, now=self.now + 2).startswith("PASS")
+        )
 
     def test_expired_session_rejected(self):
-        self.assertTrue(receive_callback(self.folder, self.url, now=self.now + LIFETIME_SECONDS + 1).startswith("REJECT"))
+        self.assertTrue(
+            receive_callback(self.folder, self.url, now=self.now + LIFETIME_SECONDS + 1).startswith(
+                "REJECT"
+            )
+        )
 
     def test_two_sessions_use_different_states(self):
-        self.assertTrue(receive_callback(self.folder, self.url, now=self.now + 1).startswith("PASS"))
+        self.assertTrue(
+            receive_callback(self.folder, self.url, now=self.now + 1).startswith("PASS")
+        )
         other = create_session(self.folder, now=self.now + 2)
         self.assertNotEqual(self.state, other)
 
@@ -91,7 +108,9 @@ class SyntheticRedirectTests(unittest.TestCase):
             thread.join(timeout=3)
 
     def test_rejects_stale_or_backdated_callback(self):
-        self.assertTrue(receive_callback(self.folder, self.url, now=self.now - 1).startswith("REJECT"))
+        self.assertTrue(
+            receive_callback(self.folder, self.url, now=self.now - 1).startswith("REJECT")
+        )
 
     def test_result_does_not_write_callback_or_tokens(self):
         receive_callback(self.folder, self.url, now=self.now + 1)

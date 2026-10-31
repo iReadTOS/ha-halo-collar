@@ -12,10 +12,10 @@ import os
 import secrets
 import stat
 import time
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator
 from urllib.parse import parse_qsl, urlsplit
 
 from sso_oauth import AuthorizationRequest, OAuthResponseError, create_request, validate_callback
@@ -54,7 +54,11 @@ def _private_open(path: Path, flags: int, *, create: bool = False) -> int:
     flags |= getattr(os, "O_NOFOLLOW", 0)
     fd = os.open(path, flags | (os.O_CREAT if create else 0), 0o600)
     meta = os.fstat(fd)
-    if not stat.S_ISREG(meta.st_mode) or meta.st_uid != os.getuid() or stat.S_IMODE(meta.st_mode) != 0o600:
+    if (
+        not stat.S_ISREG(meta.st_mode)
+        or meta.st_uid != os.getuid()
+        or stat.S_IMODE(meta.st_mode) != 0o600
+    ):
         os.close(fd)
         raise DesktopSessionError("Private research file unavailable")
     return fd
@@ -105,12 +109,15 @@ def new_session(folder: Path, *, now: float | None = None) -> AuthorizationReque
         except FileExistsError:
             raise DesktopSessionError("A research session is already pending") from None
         with os.fdopen(fd, "w", encoding="utf-8") as stream:
-            json.dump({
-                "created": time.time() if now is None else now,
-                "state": request.state,
-                "nonce": request.nonce,
-                "verifier": request.code_verifier,
-            }, stream)
+            json.dump(
+                {
+                    "created": time.time() if now is None else now,
+                    "state": request.state,
+                    "nonce": request.nonce,
+                    "verifier": request.code_verifier,
+                },
+                stream,
+            )
         (folder / "status.txt").unlink(missing_ok=True)
     return request
 
@@ -143,7 +150,10 @@ def complete_session(
                 nonce=info["nonce"],
                 code_verifier=info["verifier"],
             )
-            if not all(isinstance(x, str) and x for x in (request.state, request.nonce, request.code_verifier)):
+            if not all(
+                isinstance(x, str) and x
+                for x in (request.state, request.nonce, request.code_verifier)
+            ):
                 raise DesktopSessionError("Invalid research session")
             parts = urlsplit(callback_url)
             params = parse_qsl(parts.query, keep_blank_values=True, strict_parsing=True)

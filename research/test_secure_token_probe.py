@@ -1,4 +1,5 @@
 """Fake HTTPS/OIDC token tests for explicitly encrypted probe saving."""
+
 from __future__ import annotations
 
 import tempfile
@@ -27,11 +28,17 @@ class EncryptedProbeTests(unittest.TestCase):
 
     def test_verified_fake_oauth_response_is_saved_without_exposing_tokens(self):
         prepare_destination(self.path)
-        self.assertTrue(token_exchange(
-            "synthetic-temporary-code", self.request,
-            client_secret="synthetic-app-client-secret", jwks=self.jwks,
-            opener=self.opener, vault_path=self.path, vault_passphrase=self.passphrase,
-        ))
+        self.assertTrue(
+            token_exchange(
+                "synthetic-temporary-code",
+                self.request,
+                client_secret="synthetic-app-client-secret",
+                jwks=self.jwks,
+                opener=self.opener,
+                vault_path=self.path,
+                vault_passphrase=self.passphrase,
+            )
+        )
         value = load_bundle(self.path, passphrase=self.passphrase)
         self.assertEqual(value["subject"], "fake-subject")
         self.assertEqual(value["access_token"], "private-access")
@@ -43,9 +50,13 @@ class EncryptedProbeTests(unittest.TestCase):
     def test_missing_passphrase_cannot_succeed_or_save(self):
         with self.assertRaises(TokenVaultError):
             token_exchange(
-                "synthetic-temporary-code", self.request,
-                client_secret="synthetic-app-client-secret", jwks=self.jwks,
-                opener=self.opener, vault_path=self.path, vault_passphrase=None,
+                "synthetic-temporary-code",
+                self.request,
+                client_secret="synthetic-app-client-secret",
+                jwks=self.jwks,
+                opener=self.opener,
+                vault_path=self.path,
+                vault_passphrase=None,
             )
         self.assertFalse(self.path.exists())
 

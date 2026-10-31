@@ -37,9 +37,14 @@ def _private_socket_directory() -> Path:
     folder = root / "halo-sso-research" / "live-probe"
     folder.mkdir(parents=True, mode=0o700, exist_ok=True)
     meta = folder.lstat()
-    if (not stat.S_ISDIR(meta.st_mode) or meta.st_uid != os.getuid()
-            or stat.S_IMODE(meta.st_mode) != 0o700):
-        raise PreflightError("Private callback directory must belong to this user and have mode 0700")
+    if (
+        not stat.S_ISDIR(meta.st_mode)
+        or meta.st_uid != os.getuid()
+        or stat.S_IMODE(meta.st_mode) != 0o700
+    ):
+        raise PreflightError(
+            "Private callback directory must belong to this user and have mode 0700"
+        )
     return folder
 
 
@@ -72,9 +77,12 @@ def rehearsal() -> None:
     except OSError:
         raise PreflightError("Unable to read temporary .desktop handler") from None
     exec_lines = [line[5:] for line in contents.splitlines() if line.startswith("Exec=")]
-    if (len(exec_lines) != 1 or str(target) not in exec_lines[0]
-            or " callback %u" not in exec_lines[0]
-            or "x-scheme-handler/haloapp;" not in contents):
+    if (
+        len(exec_lines) != 1
+        or str(target) not in exec_lines[0]
+        or " callback %u" not in exec_lines[0]
+        or "x-scheme-handler/haloapp;" not in contents
+    ):
         raise PreflightError("Live .desktop Exec or MIME handler does not match this repository")
 
     previous = _call("xdg-mime", "query", "default", MIME)
@@ -114,7 +122,9 @@ def rehearsal() -> None:
             try:
                 connection, _ = listener.accept()
             except TimeoutError:
-                raise PreflightError("No callback arrived; check the .desktop Exec and uv environment") from None
+                raise PreflightError(
+                    "No callback arrived; check the .desktop Exec and uv environment"
+                ) from None
             with connection:
                 connection.settimeout(5)
                 try:
@@ -143,7 +153,10 @@ def rehearsal() -> None:
             try:
                 _call("gio", "mime", MIME, previous)
             except PreflightError:
-                print(f"WARNING: manually restore handler with: gio mime {MIME} {previous}", file=sys.stderr)
+                print(
+                    f"WARNING: manually restore handler with: gio mime {MIME} {previous}",
+                    file=sys.stderr,
+                )
                 raise
     if _call("xdg-mime", "query", "default", MIME) != previous:
         raise PreflightError("Previous desktop handler was not restored")

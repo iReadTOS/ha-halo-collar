@@ -43,9 +43,11 @@ class ProbeResult:
 def make_authorize_url(redirect_uri: str) -> str:
     """Generate a syntactically valid pre-login OIDC authorization URL."""
     verifier = secrets.token_urlsafe(48)
-    challenge = base64.urlsafe_b64encode(
-        hashlib.sha256(verifier.encode("ascii")).digest()
-    ).rstrip(b"=").decode("ascii")
+    challenge = (
+        base64.urlsafe_b64encode(hashlib.sha256(verifier.encode("ascii")).digest())
+        .rstrip(b"=")
+        .decode("ascii")
+    )
     query = urlencode(
         {
             "client_id": CLIENT_ID,
@@ -68,7 +70,11 @@ def classify_response(status: int, body: bytes) -> ProbeResult:
     # Generic HTTP 200 or a login redirect does not prove redirect registration.
     text = body.decode("utf-8", errors="replace").lower()
     text = re.sub(r"<[^>]{0,4096}>", " ", text)
-    if re.search(r"invalid[ _-]+redirect(?:[ _-]+uri|[ _-]+url)?|redirect(?:[ _-]+uri|[ _-]+url)?[ _-]+(?:is[ _-]+)?invalid", text):
+    if re.search(
+        r"invalid[ _-]+redirect(?:[ _-]+uri|[ _-]+url)?"
+        r"|redirect(?:[ _-]+uri|[ _-]+url)?[ _-]+(?:is[ _-]+)?invalid",
+        text,
+    ):
         signal = "redirect_rejected"
     elif "unauthorized_client" in text:
         signal = "client_not_authorized"

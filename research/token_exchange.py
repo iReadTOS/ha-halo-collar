@@ -88,7 +88,10 @@ def parse_token_response(status: int, payload: Any) -> OAuthTokens:
     if type(lifetime) not in (float, int) or not math.isfinite(lifetime) or lifetime <= 60:
         raise TokenExchangeError("Invalid OAuth token expiration")
     return OAuthTokens(
-        access_token=values[0], refresh_token=values[1], id_token=values[2], expires_in=float(lifetime)
+        access_token=values[0],
+        refresh_token=values[1],
+        id_token=values[2],
+        expires_in=float(lifetime),
     )
 
 

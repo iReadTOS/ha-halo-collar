@@ -13,7 +13,6 @@ import secrets
 from dataclasses import dataclass
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-
 DEFAULT_AUTHORIZATION_ENDPOINT = "https://auth.halocollar.com/connect/authorize"
 DEFAULT_SCOPE = "openid email offline_access api.dogpark"
 

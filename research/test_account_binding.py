@@ -9,8 +9,6 @@ from dataclasses import replace
 from urllib.parse import urlencode
 
 import jwt
-from cryptography.hazmat.primitives.asymmetric import rsa
-
 from account_binding import (
     AccountBinding,
     AccountBindingError,
@@ -20,7 +18,8 @@ from account_binding import (
     prepare_synthetic_new_login,
     prepare_synthetic_same_account_reauth,
 )
-from oidc_identity import IDTokenValidationError, OIDC_ISSUER
+from cryptography.hazmat.primitives.asymmetric import rsa
+from oidc_identity import OIDC_ISSUER, IDTokenValidationError
 from sso_oauth import OAuthResponseError, create_request
 from token_exchange import TokenExchangeError
 
@@ -63,8 +62,10 @@ class AccountBindingTests(unittest.IsolatedAsyncioTestCase):
         self.request = create_request(
             client_id="halo.app.android", redirect_uri="https://example.invalid/oidc-callback"
         )
-        self.callback = self.request.redirect_uri + "?" + urlencode(
-            {"code": "synthetic-secret-code", "state": self.request.state}
+        self.callback = (
+            self.request.redirect_uri
+            + "?"
+            + urlencode({"code": "synthetic-secret-code", "state": self.request.state})
         )
         self.saved = AccountBinding(OIDC_ISSUER, "subject-a", "halo.app.android")
         self.original = EntrySnapshot("entry-one", self.saved, "revision-one")
@@ -164,7 +165,9 @@ class AccountBindingTests(unittest.IsolatedAsyncioTestCase):
     async def test_invalid_callback_never_exchanges_code(self):
         session = self.session()
         with self.assertRaises(OAuthResponseError):
-            await self.reauth(session, callback_url=self.request.redirect_uri + "?code=x&state=wrong")
+            await self.reauth(
+                session, callback_url=self.request.redirect_uri + "?code=x&state=wrong"
+            )
         self.assertEqual(session.calls, [])
 
     async def test_bad_signature_cannot_propose_account(self):
@@ -205,17 +208,13 @@ class AccountBindingTests(unittest.IsolatedAsyncioTestCase):
         proposal = await self.reauth(self.session())
         changed = replace(self.original, entry_id="new-entry")
         with self.assertRaises(AccountBindingError):
-            assert_unchanged_before_reauth_commit(
-                proposal, original=self.original, current=changed
-            )
+            assert_unchanged_before_reauth_commit(proposal, original=self.original, current=changed)
 
     async def test_commit_guard_rejects_concurrent_credential_rotation(self):
         proposal = await self.reauth(self.session())
         changed = replace(self.original, revision="newer-credentials")
         with self.assertRaises(AccountBindingError):
-            assert_unchanged_before_reauth_commit(
-                proposal, original=self.original, current=changed
-            )
+            assert_unchanged_before_reauth_commit(proposal, original=self.original, current=changed)
 
     async def test_commit_guard_rejects_replacement_account(self):
         proposal = await self.reauth(self.session())
@@ -224,9 +223,7 @@ class AccountBindingTests(unittest.IsolatedAsyncioTestCase):
             binding=AccountBinding(OIDC_ISSUER, "subject-b", "halo.app.android"),
         )
         with self.assertRaises(AccountBindingError):
-            assert_unchanged_before_reauth_commit(
-                proposal, original=self.original, current=changed
-            )
+            assert_unchanged_before_reauth_commit(proposal, original=self.original, current=changed)
 
     async def test_commit_guard_rejects_wrong_proposed_identity(self):
         proposal = await self.new_login(self.session(self.signed_token(sub="subject-b")))
@@ -238,7 +235,12 @@ class AccountBindingTests(unittest.IsolatedAsyncioTestCase):
     async def test_repr_redacts_tokens_and_identity(self):
         proposal = await self.new_login(self.session())
         shown = repr(proposal) + repr(proposal.binding) + repr(self.original)
-        for secret in ("subject-a", "synthetic-access-private", "synthetic-refresh-private", "entry-one"):
+        for secret in (
+            "subject-a",
+            "synthetic-access-private",
+            "synthetic-refresh-private",
+            "entry-one",
+        ):
             self.assertNotIn(secret, shown)
 
     def test_binding_rejects_untrusted_issuer_and_empty_subject(self):

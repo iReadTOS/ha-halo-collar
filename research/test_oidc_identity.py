@@ -9,8 +9,8 @@ import unittest
 import jwt
 from cryptography.hazmat.primitives.asymmetric import rsa
 from oidc_identity import (
-    IDTokenValidationError,
     OIDC_ISSUER,
+    IDTokenValidationError,
     VerifiedOIDCIdentity,
     verify_id_token,
 )

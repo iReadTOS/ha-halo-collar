@@ -44,7 +44,11 @@ def record_status(accepted: bool, *, path: Path = STATUS_FILE) -> None:
     fd = os.open(path, flags, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as out:
         os.fchmod(out.fileno(), 0o600)
-        out.write("PASS: synthetic callback received\n" if accepted else "IGNORED: non-synthetic callback\n")
+        out.write(
+            "PASS: synthetic callback received\n"
+            if accepted
+            else "IGNORED: non-synthetic callback\n"
+        )
 
 
 def main(args: list[str] | None = None) -> int:

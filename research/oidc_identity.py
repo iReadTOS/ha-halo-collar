@@ -74,9 +74,7 @@ def verify_id_token(
         keys = jwks.get("keys")
         if not isinstance(keys, list) or len(keys) > 64:
             raise IDTokenValidationError("OIDC signing keys unavailable")
-        candidates = [
-            key for key in keys if isinstance(key, dict) and key.get("kid") == kid
-        ]
+        candidates = [key for key in keys if isinstance(key, dict) and key.get("kid") == kid]
         if len(candidates) != 1:
             raise IDTokenValidationError("OIDC signing key not uniquely identified")
         candidate = candidates[0]
@@ -103,10 +101,7 @@ def verify_id_token(
         nonce = claims.get("nonce")
         if not isinstance(subject, str) or not subject.strip():
             raise IDTokenValidationError("OIDC identity missing")
-        if (
-            not isinstance(nonce, str)
-            or not secrets.compare_digest(nonce, expected_nonce)
-        ):
+        if not isinstance(nonce, str) or not secrets.compare_digest(nonce, expected_nonce):
             raise IDTokenValidationError("OIDC nonce mismatch")
 
         audiences = claims["aud"]
