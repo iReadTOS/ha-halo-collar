@@ -22,17 +22,23 @@ FORM = {
 
 
 class FakeBody:
-    def __init__(self, data):
+    def __init__(self, data, chunk_size=None):
         self.data = data
+        self.offset = 0
+        self.chunk_size = chunk_size
 
     async def read(self, size):
-        return self.data[:size]
+        if self.chunk_size is not None:
+            size = min(size, self.chunk_size)
+        chunk = self.data[self.offset : self.offset + size]
+        self.offset += len(chunk)
+        return chunk
 
 
 class FakeResponse:
-    def __init__(self, status, payload, content_type="application/json"):
+    def __init__(self, status, payload, content_type="application/json", chunk_size=None):
         self.status = status
-        self.content = FakeBody(payload)
+        self.content = FakeBody(payload, chunk_size=chunk_size)
         self.headers = {"Content-Type": content_type, "Server": "cloudflare"}
 
     async def __aenter__(self):
@@ -59,9 +65,9 @@ class FakeSession:
 
 
 class AiohttpTokenTransportTests(unittest.TestCase):
-    def run_case(self, status, body, *, content_type="application/json"):
+    def run_case(self, status, body, *, content_type="application/json", chunk_size=None):
         calls = []
-        response = FakeResponse(status, body, content_type)
+        response = FakeResponse(status, body, content_type, chunk_size=chunk_size)
         with patch(
             "aiohttp_token_transport.aiohttp.ClientSession",
             side_effect=lambda **_kw: FakeSession(response, calls),
@@ -145,6 +151,19 @@ class AiohttpTokenTransportTests(unittest.TestCase):
         calls, _, error = self.run_case(200, b"x" * (MAX_BODY + 50))
         self.assertEqual(len(calls), 1)
         self.assertIn("Unexpected provider response", error)
+
+    def test_partial_json_arriving_in_multiple_reads_succeeds(self):
+        body = b'{"synthetic":"split response"}'
+        calls, value, error = self.run_case(200, body, chunk_size=3)
+        self.assertIsNone(error)
+        self.assertEqual(value, {"synthetic": "split response"})
+        self.assertEqual(len(calls), 1)
+
+    def test_oversized_streaming_response_stays_bounded(self):
+        calls, value, error = self.run_case(200, b"x" * (MAX_BODY + 50), chunk_size=19)
+        self.assertIsNone(value)
+        self.assertEqual(error, "Unexpected provider response (HTTP 200)")
+        self.assertEqual(len(calls), 1)
 
     def test_invalid_json_is_rejected(self):
         _, _, error = self.run_case(200, b"not-json")

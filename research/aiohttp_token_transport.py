@@ -43,7 +43,17 @@ async def _post_once(url: str, form: dict[str, str]) -> tuple[int, bytes, dict[s
             allow_redirects=False,
         ) as response:
             # Bounded in-memory read; never persist or print response contents.
-            body = await response.content.read(MAX_BODY + 1)
+            # StreamReader.read(n) may return fewer than n bytes before EOF.
+            # Accumulate bounded chunks; never log or persist response contents.
+            chunks: list[bytes] = []
+            remaining = MAX_BODY + 1
+            while remaining:
+                chunk = await response.content.read(min(8192, remaining))
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                remaining -= len(chunk)
+            body = b"".join(chunks)
             headers = {
                 name: response.headers.get(name, "")
                 for name in ("Content-Type", "Server", "cf-mitigated")
