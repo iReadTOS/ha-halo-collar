@@ -4,14 +4,16 @@
   <img src="custom_components/halo_collar/brand/icon.png" alt="Halo Collar integration icon" width="128" height="128">
 </p>
 
-[![Latest release](https://img.shields.io/github/v/release/itsreverence/ha-halo-collar)](https://github.com/itsreverence/ha-halo-collar/releases)
-[![HACS: Default](https://img.shields.io/badge/HACS-Default-41BDF5.svg)](https://github.com/hacs/default)
-[![Validate](https://github.com/itsreverence/ha-halo-collar/actions/workflows/validate.yml/badge.svg)](https://github.com/itsreverence/ha-halo-collar/actions/workflows/validate.yml)
+[![Validate](https://github.com/iReadTOS/ha-halo-collar/actions/workflows/validate.yml/badge.svg?branch=experiment%2Fbrowser-sso)](https://github.com/iReadTOS/ha-halo-collar/actions/workflows/validate.yml)
+[![Lint](https://github.com/iReadTOS/ha-halo-collar/actions/workflows/lint.yml/badge.svg?branch=experiment%2Fbrowser-sso)](https://github.com/iReadTOS/ha-halo-collar/actions/workflows/lint.yml)
 
 A Home Assistant custom integration for [Halo Collar](https://www.halocollar.com/) location, battery, connectivity, activity, and fence telemetry. Physical controls are opt-in.
 
 > [!IMPORTANT]
 > This is an **unofficial** integration. It is not affiliated with, endorsed by, or supported by Halo Collar / Protect Animals With Satellites, LLC. It talks to Halo's private mobile/cloud API, which may change or break at any time. Use at your own risk.
+
+> [!WARNING]
+> **Experimental fork / beta branch.** This fork extends the [upstream integration](https://github.com/itsreverence/ha-halo-collar) with a manual, encrypted-vault import for Sign in with Apple. It is **not** an approved third-party OAuth client, does **not** support a native browser login within Home Assistant, and has **not** been verified with paired collars. Imported SSO entries are read-only; existing password-authenticated entries retain their separately opted-in controls. Do not use this branch as a pet-safety system. See [experimental SSO instructions](README_SSO_IMPORT.md).
 
 <p align="center">
   <picture>
@@ -38,36 +40,31 @@ An account-level **Subscription** sensor summarizes subscription limits. Optiona
 ## Requirements
 
 - Home Assistant 2024.12 or newer.
-- A Halo account with an active Pack Membership Plan and at least one paired collar (the same email/password you use in the Halo mobile app).
+- A Halo account with an active Pack Membership Plan and at least one paired collar. The password flow requires the account email and password; the experimental Apple SSO flow requires a previously verified, encrypted credential vault and separate manual import.
 
 ## Installation
 
-[![Open this repository in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=itsreverence&repository=ha-halo-collar&category=integration)
-[![Add the Halo Collar integration](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=halo_collar)
+**Important:** The existing HACS default catalog entry and upstream installation button point to [`itsreverence/ha-halo-collar`](https://github.com/itsreverence/ha-halo-collar), **not** this experimental fork. Use a separate Home Assistant test instance for this fork where possible. Do not install both copies of the same `halo_collar` domain in one instance.
 
 ### HACS
 
-Halo Collar is included in the [HACS default catalog](https://github.com/hacs/default). You do not need to add a custom repository.
-
-1. Open HACS and search for **Halo Collar**.
-2. Open its repository page and select **Download**.
-3. Restart Home Assistant, then follow [Configuration](#configuration).
+The **upstream** Halo Collar integration is in the [HACS default catalog](https://github.com/hacs/default); selecting that listing will **not** install this SSO beta fork. Beta testing should preferably use the [manual branch installation](#manual) in an isolated Home Assistant instance. If you use HACS custom repositories, verify the selected repository owner is **iReadTOS** before proceeding, and avoid collisions with an existing upstream installation.
 
 ### Manual
 
-1. Copy `custom_components/halo_collar` into your Home Assistant `config/custom_components/` directory.
-2. Restart Home Assistant, then follow [Configuration](#configuration).
+1. Check out `experiment/browser-sso` in a separate working copy or download that branch's source.
+2. Back up your test Home Assistant instance. Copy **only** `custom_components/halo_collar` from that branch into `config/custom_components/`. Do not copy the `research/` helpers or any credential vault into Home Assistant.
+3. Restart Home Assistant, then follow [Configuration](#configuration). Existing upstream installations should not be overwritten during initial beta testing.
 
 ## Configuration
 
-1. Go to **Settings → Devices & Services → Add Integration**.
-2. Search for **Halo Collar**.
-3. Enter the **email** and **password** for your Halo account.
-4. Submit. The integration signs in, discovers your collars, and creates the entities.
+1. Go to **Settings → Devices & Services → Add Integration** and search for **Halo Collar**.
+2. Choose **Email and password** for the existing login, or **Import encrypted SSO vault** for the experimental Apple SSO beta.
+3. For email/password, enter the account credentials and submit. For SSO, follow the [separate encrypted-vault guide](README_SSO_IMPORT.md), including its unsupported-client and account-privacy warnings. This import is **not** a browser login.
 
-The advanced OAuth client fields use the official app's defaults. You can override them during initial setup. Reauthentication and options cannot replace saved OAuth settings. For an existing entry with authentication trouble, follow [Recover authentication](SUPPORT.md#recover-authentication).
+The password flow uses the mobile app's OAuth client defaults, which can be overridden during initial setup. Reauthentication and options cannot replace saved OAuth settings. The SSO import verifies a previously encrypted credential bundle; it does not ask for an Apple password. See [Recover authentication](SUPPORT.md#recover-authentication).
 
-Home Assistant stores tokens, expiry, normalized email, and OAuth client settings, but never your password. It refreshes access tokens automatically and prompts for same-account reauthentication when needed. See [Authentication](docs/ARCHITECTURE.md#authentication) for the password-grant flow and persistence details.
+Home Assistant stores access/refresh tokens and expiry in its protected config entry; the password flow also stores normalized email and OAuth client settings, but not the user's password. SSO import also stores the verified OIDC subject and issuer, but **not** the vault passphrase or encrypted vault text. Token refresh is supported for both flows. Protect Home Assistant backups and never share the vault contents or private account data. See [Authentication](docs/ARCHITECTURE.md#authentication).
 
 ### Confirm it is working
 
@@ -90,6 +87,8 @@ Open **Configure** on the integration under **Settings > Devices & services**.
 | **Enable fail-safe fence controls** | Off. Adds **Enable fences**, which can restore fence enforcement but cannot disable it. |
 | **Allow fences to be disabled (requires fence controls)** | Off. Also requires **Enable fail-safe fence controls**. Adds **Fence mode**, which can disable containment, including through automations. Active or unknown walks block fence-off. |
 | **Enable Find collar sound and light** | Off. Adds **Find collar (sound and light)** to request a sound and light command. It may confuse a pet wearing the collar. It requires fresh exact mapping, subscription entitlement, and no active or unknown walk. Every attempted dispatch starts a 60-second cooldown, including failed or ambiguous outcomes. Provider acceptance does not verify physical execution. |
+
+**Imported SSO entries never load button/switch controls, regardless of options.** Only password-authenticated entries can use the controls described here.
 
 Controls require telemetry no older than the shorter of **Collar report age limit** and 900 seconds. Fence changes require synchronized reported-state confirmation. Commands are sent at most once and are never replayed after an ambiguous result.
 
@@ -117,6 +116,8 @@ See [SUPPORT.md](SUPPORT.md) for support routes, first checks, and sensitive-dat
 
 ## Project docs
 
+- [Experimental SSO encrypted-vault import](README_SSO_IMPORT.md)
+- [Upstream project](https://github.com/itsreverence/ha-halo-collar)
 - [Support](SUPPORT.md)
 - [Security policy](SECURITY.md)
 - [Contributing](CONTRIBUTING.md)

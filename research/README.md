@@ -1,4 +1,6 @@
-# Halo SSO feasibility experiment (offline only)
+# Halo SSO feasibility experiment (historical research and offline tests)
+
+> **Status note:** This document describes early offline research, before a later account-owner-initiated Sign in with Apple feasibility test and the experimental Home Assistant encrypted-vault importer. For the current beta behavior and limitations, see [SSO import status](../README_SSO_IMPORT.md). The mobile-client redirect remains unsupported for third-party integration use.
 
 This isolated research folder targets a potential contribution to
 `iReadTOS/ha-halo-collar` / upstream `itsreverence/ha-halo-collar`.

@@ -6,7 +6,7 @@ This checklist is for maintainers.
 
 1. Update the `X.Y.Z` versions in `custom_components/halo_collar/manifest.json` and `pyproject.toml`. Run `uv lock` to refresh the project version in `uv.lock`, then review the lockfile diff.
 2. Confirm the planned Git tag and release use `vX.Y.Z`.
-3. Review README, support, security, and compatibility guidance.
+3. Review README, support, security, and compatibility guidance, especially the experimental SSO limitations, fork-specific issue/security links, and HACS upstream/fork distinction.
 4. Run:
 
    ```bash
@@ -22,7 +22,9 @@ This checklist is for maintainers.
    python scripts/verify_release_artifacts.py dist
    ```
 
-5. Confirm the GitHub `Lint` and `Validate` workflows pass for the exact release commit.
+5. Confirm the GitHub `Lint` and `Validate` workflows pass for the exact release commit. A local skipped test is not a pass; use the isolated Home Assistant suite.
+6. For this SSO beta, manually verify paired-collar discovery and representative **read-only** battery, connectivity, and location data against the official Halo app in an isolated test instance. Confirm an imported SSO entry never exposes buttons/switches even if options are enabled. Do **not** publish until this is checked and the user understands the limitations.
+7. Confirm logs, diagnostics, and any release notes exclude token material, encrypted vaults, passphrases, OIDC subjects, names, serial numbers, routes, and coordinates.
 
 The isolated test command above uses the pinned Home Assistant contract described in [Contributing](../CONTRIBUTING.md#pinned-home-assistant-contract). Artifact validation checks package contents and integrity. It does not replace the manual privacy review below.
 
@@ -52,6 +54,6 @@ Use only original or properly licensed artwork. Do not copy Halo's trademarked l
 
 ## HACS default listing
 
-Halo Collar is included in the [HACS default repository list](https://github.com/hacs/default). Verify that it remains discoverable in HACS without adding a custom repository.
+The **upstream** `itsreverence/ha-halo-collar` repository is included in the [HACS default repository list](https://github.com/hacs/default). This fork (`iReadTOS/ha-halo-collar`) is **not** the default catalog listing. Do not claim the default listing installs this beta. Confirm manual/explicit-fork installation instructions, repository owner, and domain-conflict warnings before publication.
 
-The repository must remain public, pass Hassfest and HACS validation, include current release artifacts and local brand assets, and maintain an accurate description, topics, issue tracker, and documentation links.
+The public fork should pass Hassfest and HACS validation, include current release artifacts and local brand assets, and maintain accurate metadata, issue tracker, security guidance, and documentation links.

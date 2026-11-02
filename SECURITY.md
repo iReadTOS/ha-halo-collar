@@ -2,13 +2,13 @@
 
 ## Supported versions
 
-Security fixes are applied to the latest release only.
+The `experiment/browser-sso` branch and `0.7.9b1` beta candidate are experimental and not a supported stable release. Security fixes and provider compatibility are not guaranteed.
 
 ## Reporting a vulnerability
 
-Do not open a public issue containing Halo credentials, OAuth tokens, pet names, serial numbers, precise locations, fence data, private API payloads, Home Assistant secrets, or unredacted diagnostics.
+Do not open a public issue containing Halo credentials, OAuth tokens, encrypted vault contents or passphrases, OIDC account subjects, pet names, serial numbers, precise locations, fence data, private API payloads, Home Assistant secrets, or unredacted diagnostics.
 
-Use [GitHub private vulnerability reporting](https://github.com/itsreverence/ha-halo-collar/security/advisories/new) for this repository. Do not include sensitive details in a public issue.
+For vulnerabilities in **this fork**, check the [fork's Security page](https://github.com/iReadTOS/ha-halo-collar/security) for private-reporting options. If private reporting is unavailable, ask the fork maintainer for a secure contact channel **without posting exploit details or secrets publicly**. Do not report this fork's SSO issues to the upstream maintainer by default.
 
 Include:
 
@@ -18,7 +18,7 @@ Include:
 
 ## Sensitive data and credential response
 
-The integration exchanges Halo account credentials for OAuth tokens and does not persist the password. Home Assistant stores tokens, expiry, normalized email, and OAuth client settings in its config entry. Treat Home Assistant backups, diagnostics, API captures, and logs as sensitive until reviewed.
+The password flow exchanges Halo account credentials for OAuth tokens and does not persist the password. Experimental SSO imports a passphrase-encrypted token vault, decrypts it in memory, and stores tokens, verified issuer/subject and client metadata in the protected Home Assistant config entry—not the original vault/passphrase. Home Assistant stores sensitive token and identity data for both authentication types. Treat Home Assistant backups, diagnostics, API captures, and logs as sensitive until reviewed.
 
 If a password or token is exposed:
 
@@ -29,7 +29,7 @@ If a password or token is exposed:
 
 ## Safety boundary
 
-Halo Collar is **telemetry-only by default**. The only supported writes are opt-in fence controls and Find collar. Fence-off requires a stronger opt-in and rejects active or unknown walks. Fence changes require reported-state confirmation. Find collar requires entitlement, fresh exact mapping, no active or unknown walk, and a cooldown. Provider acceptance does not verify physical execution. See [control transactions](docs/ARCHITECTURE.md#control-transactions) for the full guarantees.
+Password-authenticated Halo Collar entries are **telemetry-only by default**. Imported SSO entries are **always read-only**: they do not initialize the write transport or load the button/switch platforms. The only supported writes for password entries are opt-in fence controls and Find collar. Fence-off requires a stronger opt-in and rejects active or unknown walks. Fence changes require reported-state confirmation. Find collar requires entitlement, fresh exact mapping, no active or unknown walk, and a cooldown. Provider acceptance does not verify physical execution. See [control transactions](docs/ARCHITECTURE.md#control-transactions) for the full guarantees.
 
 Fence creation, editing, and deletion; corrections; bind/unbind; account changes; arbitrary collar behavior; and other private write endpoints remain intentionally unsupported. Treat every Home Assistant control as a supplemental convenience, not a containment authority. Confirm safety-critical state in the official Halo app and physically verify your pet is safe.
 

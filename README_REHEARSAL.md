@@ -1,4 +1,6 @@
-# Halo local callback rehearsal (no Halo or Apple login)
+# Halo local callback rehearsal (historical notes; no Halo or Apple login)
+
+> **Historical setup:** This note references a patch file and desktop handler from an earlier local experiment. The patch file is not included in the repository; these steps are not a complete standalone procedure. Do not apply them blindly. For the current SSO beta status and limitations, see [README_SSO_IMPORT.md](README_SSO_IMPORT.md).
 
 Copy `research/preflight_desktop_callback.py` into the existing `research` folder.
 Optionally apply `halo_socket_read_fix.patch` from the repository root using

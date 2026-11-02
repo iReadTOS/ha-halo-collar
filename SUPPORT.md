@@ -22,11 +22,13 @@
 
 ## Recover authentication
 
-Reauthentication renews credentials for the account already saved in this integration. Email comparison ignores surrounding spaces and capitalization. Use the saved account's email and current Halo password. A different email is rejected before sign-in. To use a different account, add a separate Halo Collar integration.
+Reauthentication renews credentials for the account already saved in this integration. **For an email/password entry**, email comparison ignores surrounding spaces and capitalization: use the saved account's email and current Halo password. A different email is rejected before sign-in. To use a different account, add a separate Halo Collar integration.
+
+**For an experimental SSO-vault entry**, Home Assistant requests a **new encrypted vault** from the same verified OIDC subject, issuer, and client. The original Fedora vault can become unusable after refresh-token rotation. Do not reuse an expired vault, substitute a different account, or paste any vault/passphrase into an issue or chat. Follow [SSO vault import](README_SSO_IMPORT.md). An SSO entry remains read-only after reauthentication.
 
 If Home Assistant reports that the account or OAuth settings changed during sign-in, restart reauthentication from the current integration. If the saved identity is missing or inconsistent, reauthentication stops without changing credentials. It does not repair, migrate, or delete the entry. Check that you selected the intended integration and consult the [support routes](#bugs-and-feature-requests) if you need help.
 
-Reauthentication reuses the saved OAuth client ID and secret. Neither reauthentication nor **Configure** can replace them. Updating the integration does not replace settings already saved in an entry. If an existing entry needs different OAuth settings, use the [support routes](#bugs-and-feature-requests) before choosing remove-and-add recovery.
+Password reauthentication reuses the saved OAuth client ID and secret. SSO reauthentication also preserves its verified issuer, subject, and client identity. Neither reauthentication nor **Configure** can replace the saved OAuth identity. Updating the integration does not replace settings already saved in an entry. If an existing entry needs different OAuth settings, use the [support routes](#bugs-and-feature-requests) before choosing remove-and-add recovery.
 
 If you choose to remove and add the integration again, first back up Home Assistant and record the affected entities, automations, dashboards, and integration options. Removal can affect device and entity registry associations. After adding the intended account, check entity references and repair affected automations and dashboards. A new entry starts telemetry-only, so review each control opt-in again. Do not edit stored tokens or identity fields to bypass the account check.
 
@@ -64,7 +66,7 @@ If the menus or diagnostics are unavailable during setup failure, include the er
 
 ## Bugs and feature requests
 
-Use the repository's [issue forms](https://github.com/itsreverence/ha-halo-collar/issues/new/choose). Include Home Assistant and integration versions, reproduction steps, and only relevant redacted logs or diagnostics.
+For **this experimental fork**, use its [issue forms](https://github.com/iReadTOS/ha-halo-collar/issues/new/choose), rather than the upstream project's issue tracker. Include Home Assistant and integration versions, reproduction steps, and only relevant redacted logs or diagnostics.
 
 Never post Halo passwords, OAuth tokens, pet names, serial numbers, precise locations, fence data, account identifiers, or raw private-API captures.
 

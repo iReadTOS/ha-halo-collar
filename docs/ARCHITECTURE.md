@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`ha-halo-collar` is a telemetry-first Home Assistant custom integration for Halo Collar cloud data, with narrowly scoped physical controls that are disabled by default. It is built on Halo's unofficial mobile/cloud API and is not affiliated with or supported by the vendor.
+`ha-halo-collar` is a telemetry-first Home Assistant custom integration for Halo Collar cloud data, with narrowly scoped physical controls that are disabled by default. This experimental fork additionally supports manual import of a previously verified, encrypted SSO credential vault. SSO entries do not initialize physical controls. It is built on Halo's unofficial mobile/cloud API and is not affiliated with or supported by the vendor.
 
 ## Runtime shape
 
@@ -34,7 +34,7 @@ Home Assistant config entry (email, tokens, expiry, OAuth client settings; no pa
 - `event`: fence breach event entity for automation triggers.
 - `button`: fail-safe idempotent fence enable after the fence-control opt-in; separately opted-in Find collar physical Return Whistle after fresh identity/telemetry/entitlement checks and subject to a post-dispatch cooldown.
 - `switch`: full fence mode including disable, available only after the separate high-risk opt-in.
-- `diagnostics`: redacted config-entry diagnostics (tokens, serials, coordinates, names removed).
+- `diagnostics`: redacted config-entry diagnostics (tokens, OIDC subjects, serials, coordinates, names removed).
 
 Opted-in actions also add enum status sensors in the diagnostic category. A pure classifier derives advisory reasons from cached state, current options, the shared freshness cap, and the existing cooldown map. Status sensors remain available through cloud and mapping failures. Their values never authorize dispatch or confirm physical execution.
 
@@ -54,9 +54,13 @@ The code map comes from the Halo app. A live cloud response confirmed the field 
 
 ## Authentication
 
-The config flow collects the user's Halo email and password and exchanges them for OAuth tokens via the password grant. The bundled `client_id`/`client_secret` are static, app-level credentials extracted from the official Halo app (shared by all installs, not user data); users can override them in the advanced fields during initial setup. Reauthentication uses the saved OAuth settings and exposes only email and password. Options cannot change OAuth settings. See [account recovery](../SUPPORT.md#recover-authentication) for existing-entry precautions.
+The config flow has two distinct methods: **email/password**, which collects credentials and exchanges them for OAuth tokens via the password grant, and **experimental SSO-vault import**, which accepts a passphrase-encrypted, previously verified authorization-code login bundle. The SSO flow does not directly open a browser or request a Halo authorization code from Home Assistant. It is not an approved third-party OAuth registration and should not be treated as a provider-supported integration.
+
+In the password flow, the bundled `client_id`/`client_secret` are static, app-level credentials extracted from the official Halo app (shared by all installs, not user data); users can override them in the advanced fields during initial setup. Reauthentication uses the saved OAuth settings and exposes only email and password. Options cannot change OAuth settings. See [account recovery](../SUPPORT.md#recover-authentication) for existing-entry precautions.
 
 ### Token persistence
+
+For SSO-vault entries, the importer decrypts the supplied bundle in memory, validates its format and expected issuer/client, and persists tokens, expiry, and verified OIDC subject/issuer in the Home Assistant config entry. The encrypted bundle and passphrase are not retained. The entry receives a SHA-256-derived unique ID based on issuer/client/subject. Its token writer also rejects changes to stored SSO identity and client lineage. Reauthentication requires a newly imported vault with the same subject, issuer, and client. The original vault may no longer work after token rotation. Write transport and button/switch platforms are unavailable for SSO entries even if a user opts into controls.
 
 Refreshed tokens and expiry-only renewals are written back to the config entry so they survive restarts. OAuth and API reads disable redirects. Successful token payloads are validated completely before the access token, refresh token, or expiry is changed, so malformed responses cannot partially rotate credentials. When the API reports an authentication failure, the coordinator raises `ConfigEntryAuthFailed`, which starts Home Assistant's reauth flow.
 
