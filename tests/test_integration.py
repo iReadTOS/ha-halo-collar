@@ -34,6 +34,7 @@ from custom_components.halo_collar.api import HaloApiError, HaloAuthError, HaloS
 from custom_components.halo_collar.const import (
     CONF_ACCESS_TOKEN,
     CONF_ALLOW_FENCE_DISABLE,
+    CONF_AUTH_METHOD,
     CONF_CLIENT_ID,
     CONF_CLIENT_SECRET,
     CONF_EMAIL,
@@ -43,10 +44,12 @@ from custom_components.halo_collar.const import (
     CONF_PASSWORD,
     CONF_REFRESH_TOKEN,
     CONF_SCAN_INTERVAL,
+    CONF_SSO_SUBJECT,
     CONF_STALE_AFTER,
     DEFAULT_API_BASE,
     DEFAULT_AUTH_BASE,
     DOMAIN,
+    SSO_VAULT_AUTH,
 )
 from custom_components.halo_collar.control_status import find_status_signal
 from custom_components.halo_collar.controls import (
@@ -55,7 +58,7 @@ from custom_components.halo_collar.controls import (
     find_collar_cooldowns_for,
 )
 from custom_components.halo_collar.diagnostics import async_get_config_entry_diagnostics
-from custom_components.halo_collar.helpers import reported_activity_options
+from custom_components.halo_collar.helpers import REDACTED, reported_activity_options
 
 
 class FakeHaloClient:
@@ -1108,6 +1111,30 @@ async def test_diagnostics_walk_history_keeps_only_scalar_pet_metrics(hass):
         "excluded",
     ):
         assert sentinel not in serialized
+
+
+async def test_diagnostics_redacts_sso_subject(hass):
+    """The persistent SSO identity must not appear in downloaded diagnostics."""
+    private_subject = "PRIVATE_SSO_SUBJECT_SENTINEL"
+    client = FakeHaloClient(_state())
+    entry = _entry({})
+    entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        entry,
+        data={
+            **entry.data,
+            CONF_AUTH_METHOD: SSO_VAULT_AUTH,
+            CONF_SSO_SUBJECT: private_subject,
+        },
+    )
+    await _setup(hass, entry, client)
+
+    diagnostics = await async_get_config_entry_diagnostics(hass, entry)
+
+    assert diagnostics["entry"]["data"][CONF_SSO_SUBJECT] == REDACTED
+    assert diagnostics["entry"]["data"][CONF_ACCESS_TOKEN] == REDACTED
+    assert diagnostics["entry"]["data"][CONF_REFRESH_TOKEN] == REDACTED
+    assert private_subject.lower() not in json.dumps(diagnostics, default=str).lower()
 
 
 async def test_runtime_walk_sensors_are_unknown_for_empty_or_mismatched_history(hass):

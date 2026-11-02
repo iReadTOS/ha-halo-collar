@@ -11,6 +11,7 @@ REDACT_KEYS = frozenset(
     {
         "access_token",
         "refresh_token",
+        "sso_subject",
         "client_secret",
         "password",
         "email",
