@@ -529,7 +529,8 @@ class FakeWriteTransport:
         self.session = session
 
     @asynccontextmanager
-    async def put(self, url, *, headers, payload=None, pre_dispatch=None):
+    async def request(self, method, url, *, headers, payload=None, pre_dispatch=None):
+        assert method == "PUT"
         if pre_dispatch is not None:
             pre_dispatch()
         response = await self.session.put(url, headers=headers, json=payload, allow_redirects=False)
@@ -689,7 +690,7 @@ async def test_empty_fence_target_is_rejected_before_transport():
     session = FakeSession()
     client = _new_client(session)
 
-    with pytest.raises(HaloApiError, match="Pet ID is required"):
+    with pytest.raises(HaloApiError, match="pet ID is not safe"):
         await client.async_set_fences_enabled("", enabled=True)
 
     assert session.posts == []
@@ -1234,11 +1235,11 @@ async def test_find_collar_uses_bodyless_single_attempt_contract():
     client._access_token = "access"
     client._expires_at = time.time() + 3600
 
-    await client.async_find_collar("collar/id")
+    await client.async_find_collar("collar-1")
 
     assert len(session.puts) == 1
     url, payload, headers = session.puts[0]
-    assert url == "https://api.example/collar/collar%2Fid/find"
+    assert url == "https://api.example/collar/collar-1/find"
     assert payload is None
     assert headers["Authorization"] == "Bearer access"
     assert session.put_redirects == [False]
@@ -1319,7 +1320,7 @@ async def test_find_collar_rejects_invalid_target_before_transport(collar_id):
     session = FindCollarSession()
     client = _new_client(session)
 
-    with pytest.raises(HaloApiError, match="non-empty string"):
+    with pytest.raises(HaloApiError, match="collar ID is not safe"):
         await client.async_find_collar(collar_id)
 
     assert session.posts == []

@@ -12,6 +12,7 @@ from .api import HaloApiError, HaloState
 from .const import (
     CONF_ENABLE_FENCE_CONTROLS,
     CONF_ENABLE_FIND_COLLAR,
+    CONF_ENABLE_RECALL_WHISTLE,
     DOMAIN,
 )
 from .control_status import find_status_signal
@@ -23,19 +24,28 @@ from .controls import (
     control_stale_after,
     find_collar_cooldown_remaining,
     find_collar_cooldowns_for,
+    live_runtime_check,
 )
-from .entity import HaloEntity
+from .entity import HaloDogEntity, HaloEntity
 from .helpers import has_active_walk, is_online, subscription_feature_enabled
+from .recall_runtime import (
+    RECALL_BUTTON_SUFFIX,
+    recall_dogs,
+    recall_owner_for,
+    recall_status_signal,
+)
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
     fence_controls = entry.options.get(CONF_ENABLE_FENCE_CONTROLS, False)
     find_collar = entry.options.get(CONF_ENABLE_FIND_COLLAR, False)
-    if not fence_controls and not find_collar:
+    recall_whistle = entry.options.get(CONF_ENABLE_RECALL_WHISTLE, False)
+    if not fence_controls and not find_collar and not recall_whistle:
         return
     stored = hass.data[DOMAIN][entry.entry_id]
     coordinator = stored["coordinator"]
     control_lock = control_lock_for(hass.data[DOMAIN], entry.entry_id)
+    is_current = live_runtime_check(hass.data[DOMAIN], entry.entry_id)
     entities = []
     if fence_controls:
         entities.extend(
@@ -45,6 +55,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
                 stored["client"],
                 collar,
                 control_lock,
+                is_current,
             )
             for collar in coordinator.data.collars
         )
@@ -57,9 +68,18 @@ async def async_setup_entry(hass, entry, async_add_entities):
                 stored["client"],
                 collar,
                 control_lock,
+                is_current,
                 cooldowns,
             )
             for collar in coordinator.data.collars
+        )
+    if recall_whistle:
+        recall = recall_owner_for(hass, entry)
+        entities.extend(
+            HaloRecallWhistleButton(
+                coordinator, entry, stored["client"], collar, pet_id, recall, is_current
+            )
+            for pet_id, collar in recall_dogs(hass, entry, coordinator.data).items()
         )
     async_add_entities(entities)
 
@@ -70,10 +90,11 @@ class HaloEnableFencesButton(HaloEntity, ButtonEntity):
     _attr_translation_key = "enable_fences"
     _attr_icon = "mdi:shield-check"
 
-    def __init__(self, coordinator, entry, client, collar, control_lock) -> None:
+    def __init__(self, coordinator, entry, client, collar, control_lock, is_current) -> None:
         super().__init__(coordinator, entry, collar)
         self._client = client
         self._control_lock = control_lock
+        self._is_current = is_current
         self._attr_unique_id = f"{self._collar_id}_enable_fences"
 
     @property
@@ -95,6 +116,7 @@ class HaloEnableFencesButton(HaloEntity, ButtonEntity):
                 client=self._client,
                 entry=self._entry,
                 control_lock=self._control_lock,
+                is_current=self._is_current,
                 state_getter=lambda: (self.pet, self.collar),
                 enabled=True,
             )
@@ -115,11 +137,13 @@ class HaloFindCollarButton(HaloEntity, ButtonEntity):
         client,
         collar,
         control_lock,
+        is_current,
         cooldowns,
     ) -> None:
         super().__init__(coordinator, entry, collar)
         self._client = client
         self._control_lock = control_lock
+        self._is_current = is_current
         self._cooldowns = cooldowns
         self._cancel_cooldown_update = None
         self._attr_unique_id = f"{self._collar_id}_find_collar"
@@ -178,6 +202,7 @@ class HaloFindCollarButton(HaloEntity, ButtonEntity):
                 client=self._client,
                 entry=self._entry,
                 control_lock=self._control_lock,
+                is_current=self._is_current,
                 cooldowns=self._cooldowns,
                 state_getter=lambda: (
                     self.pet,
@@ -192,3 +217,38 @@ class HaloFindCollarButton(HaloEntity, ButtonEntity):
                 self.hass, find_status_signal(self._entry.entry_id, self._collar_id)
             )
             self._schedule_cooldown_update()
+
+
+class HaloRecallWhistleButton(HaloDogEntity, ButtonEntity):
+    _attr_translation_key = "recall_whistle"
+    _attr_icon = "mdi:whistle"
+
+    def __init__(self, coordinator, entry, client, collar, pet_id: str, recall, is_current) -> None:
+        super().__init__(coordinator, entry, collar, pet_id)
+        self._client = client
+        self._recall = recall
+        self._is_current = is_current
+        self._attr_unique_id = f"{pet_id}{RECALL_BUTTON_SUFFIX}"
+
+    @property
+    def available(self) -> bool:  # pyright: ignore[reportIncompatibleVariableOverride]
+        # Home Assistant skips unavailable entities in button.press without an error,
+        # so an automation's whistle would vanish silently. Every refusal raises instead,
+        # and the Recall whistle status sensor previews readiness.
+        return True
+
+    async def async_press(self) -> None:
+        try:
+            await self._recall.async_press(
+                self._pet_id,
+                coordinator=self.coordinator,
+                client=self._client,
+                entry=self._entry,
+                is_current=self._is_current,
+            )
+        except (HaloApiError, HaloControlError) as err:
+            raise HomeAssistantError(f"Could not play the Halo Recall whistle: {err}") from err
+        finally:
+            async_dispatcher_send(
+                self.hass, recall_status_signal(self._entry.entry_id, self._pet_id)
+            )

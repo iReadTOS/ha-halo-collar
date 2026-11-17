@@ -8,12 +8,15 @@ import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
-from urllib.parse import quote
+from datetime import UTC, datetime, timedelta
+from time import monotonic
+from typing import TYPE_CHECKING, Any, Literal
 
 import aiohttp
 
 if TYPE_CHECKING:
+    from uuid import UUID
+
     from aiohttp import ClientSession
 
     from .transport import HaloWriteTransport
@@ -22,6 +25,23 @@ TOKEN_REFRESH_SKEW_SECONDS = 60
 REQUEST_TIMEOUT_SECONDS = 30
 OPTIONAL_SERVER_TIME_TIMEOUT_SECONDS = 5
 OPTIONAL_WALK_HISTORY_TIMEOUT_SECONDS = 5
+RECALL_WINDOW_TIMEOUT_SECONDS = 5
+# RunInstantCorrectionDto.CommandNumber is a signed 32-bit integer.
+HALO_RECALL_MAX_COMMAND_NUMBER = 2**31 - 1
+# The only correction type this integration can send. The same endpoint also delivers
+# Warning, FirstTime and Escalation corrections, so no caller can choose the type.
+_RECALL_CORRECTION_TYPE = "returnwhistle"
+# MobileDataRequestDto fields that describe Home Assistant rather than a phone. Platform
+# and idiom are Halo's DevicePlatformDto and DeviceIdiomDto names, lowercased like the
+# enum values the Halo app sends.
+_RECALL_DEVICE = {
+    "model": "Home Assistant",
+    "manufacturer": "Home Assistant",
+    "platform": "unknown",
+    "idiom": "unknown",
+}
+_TIMESPAN_PATTERN = re.compile(r"(?:(\d{1,8})\.)?(\d{1,2}):(\d{2}):(\d{2})(?:\.(\d{1,7}))?")
+_PATH_ID_PATTERN = re.compile(r"[A-Za-z0-9_~-][A-Za-z0-9._~-]{0,127}")
 # The Halo app's own walk-history page size. A wider window reduces one dog's walks
 # crowding another dog out on multi-dog accounts, in a single request per poll.
 WALK_HISTORY_PAGE_SIZE = 30
@@ -182,6 +202,101 @@ class HaloState:
     walks: list[dict[str, Any]] = field(default_factory=list)
     # "ok", "unavailable" (timeout or error), or "unexpected_response" (unrecognized shape).
     walk_history_status: str = "ok"
+    server_time_monotonic: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class HaloRecallCommand:
+    mobile_id: int
+    command_number: int
+    expires_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class HaloRecallAccepted:
+    """Halo accepted the command. Halo reports no playback confirmation."""
+
+
+@dataclass(frozen=True, slots=True)
+class HaloRecallStaleNumber:
+    """Halo rejected a reused or lower command number. The whistle did not play."""
+
+    current_command_number: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class HaloRecallExpired:
+    """Halo rejected the command because it expired. The whistle did not play."""
+
+
+HaloRecallReply = HaloRecallAccepted | HaloRecallStaleNumber | HaloRecallExpired
+
+
+def halo_mobile_id(value: Any) -> int | None:
+    """Parse MobileIdDto.MobileId, a signed 16-bit integer."""
+    if type(value) is not int or not -(2**15) <= value < 2**15:
+        return None
+    return value
+
+
+def _recall_command_number(value: Any) -> int | None:
+    if type(value) is not int or not 0 <= value <= HALO_RECALL_MAX_COMMAND_NUMBER:
+        return None
+    return value
+
+
+def _parse_recall_reply(payload: dict[str, Any]) -> HaloRecallReply:
+    """Map TestCorrectionResponseDto; anything but a definitive answer is ambiguous."""
+    result = payload.get("result")
+    outcome = result.casefold() if isinstance(result, str) else None
+    if outcome == "success":
+        return HaloRecallAccepted()
+    if outcome == "oldcommandnumber":
+        return HaloRecallStaleNumber(_recall_command_number(payload.get("currentCommandNumber")))
+    if outcome == "commandexpired":
+        return HaloRecallExpired()
+    raise HaloWriteOutcomeUnknown("Halo Recall reply had no definitive result; outcome is unknown")
+
+
+def _parse_timespan(value: Any) -> timedelta | None:
+    """Parse a positive .NET TimeSpan ([d.]hh:mm:ss[.fffffff]) or a number of seconds."""
+    if isinstance(value, bool):
+        return None
+    try:
+        if isinstance(value, (int, float)):
+            window = timedelta(seconds=value)
+        elif isinstance(value, str) and (match := _TIMESPAN_PATTERN.fullmatch(value)):
+            days, hours, minutes, seconds, fraction = match.groups()
+            if int(hours) > 23 or int(minutes) > 59 or int(seconds) > 59:
+                return None
+            window = timedelta(
+                days=int(days or 0),
+                hours=int(hours),
+                minutes=int(minutes),
+                seconds=int(seconds),
+                microseconds=int((fraction or "0").ljust(7, "0")) // 10,
+            )
+        else:
+            return None
+    except (OverflowError, ValueError):
+        return None
+    return window if window > timedelta(0) else None
+
+
+def _utc_wire_time(value: datetime) -> str:
+    return value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _path_id(value: Any, kind: str) -> str:
+    """Return a Halo ID that can only form one URL path segment.
+
+    Only URL-unreserved characters pass, so nothing needs escaping, and a leading dot
+    is refused: URL normalization drops a "." or ".." segment, which would send the
+    write to a different route.
+    """
+    if not isinstance(value, str) or _PATH_ID_PATTERN.fullmatch(value) is None:
+        raise HaloApiError(f"Halo {kind} ID is not safe to use in a request path")
+    return value
 
 
 class HaloApiClient:
@@ -242,6 +357,7 @@ class HaloApiClient:
         collars = [_normalize_collar(collar) for collar in collars]
 
         server_time = None
+        server_time_requested_at = monotonic()
         try:
             async with asyncio.timeout(OPTIONAL_SERVER_TIME_TIMEOUT_SECONDS):
                 server_time = await self.async_get("/system/server-date-time")
@@ -271,13 +387,15 @@ class HaloApiClient:
                 ]
             else:
                 walk_history_status = "unexpected_response"
+        has_server_time = isinstance(server_time, str)
         return HaloState(
             pets=pets,
             collars=collars,
             subscription=subscription,
-            server_time=server_time if isinstance(server_time, str) else None,
+            server_time=server_time if has_server_time else None,
             walks=walks,
             walk_history_status=walk_history_status,
+            server_time_monotonic=server_time_requested_at if has_server_time else None,
         )
 
     async def async_get_many(self, *paths: str) -> list[Any]:
@@ -334,11 +452,70 @@ class HaloApiClient:
         Writes are deliberately not retried on 429/5xx or connection errors:
         callers must refresh state before deciding whether another write is safe.
         """
-        if not pet_id:
-            raise HaloApiError("Pet ID is required to change fence mode")
+        path = f"/pet/{_path_id(pet_id, 'pet')}/instant-mode"
         payload = {"modePatch": {"fencesOn": enabled}}
-        path = f"/pet/{quote(pet_id, safe='')}/instant-mode"
-        return await self._async_put_json(path, payload, pre_dispatch=pre_dispatch)
+        return await self._async_write_json("PUT", path, payload, pre_dispatch=pre_dispatch)
+
+    async def async_get_recall_window(self) -> timedelta:
+        try:
+            async with asyncio.timeout(RECALL_WINDOW_TIMEOUT_SECONDS):
+                configuration = await self.async_get("/configuration")
+        except TimeoutError:
+            raise HaloApiError("Halo configuration read timed out") from None
+        correction = configuration.get("correction") if isinstance(configuration, dict) else None
+        window = _parse_timespan(
+            correction.get("runPositiveCorrectionExpiration")
+            if isinstance(correction, dict)
+            else None
+        )
+        if window is None:
+            raise HaloApiError("Halo did not report a valid Recall command window")
+        return window
+
+    async def async_register_recall_device(
+        self,
+        installation_id: UUID,
+        *,
+        version_string: str,
+        pre_dispatch: Callable[[], None],
+    ) -> int:
+        """Register this installation as a Halo mobile device and return its mobileId.
+
+        Halo has no route to remove the registration. The request is sent at most once.
+        A reply without a usable mobileId is ambiguous: Halo may have created a record.
+        """
+        payload = {
+            "internalMobileId": str(installation_id),
+            "versionString": version_string,
+            **_RECALL_DEVICE,
+        }
+        result = await self._async_write_json(
+            "POST", "/account/mobile-data", payload, pre_dispatch=pre_dispatch
+        )
+        mobile_id = halo_mobile_id(result.get("mobileId"))
+        if mobile_id is None:
+            raise HaloWriteOutcomeUnknown(
+                "Halo registration reply had no usable mobileId; outcome is unknown"
+            )
+        return mobile_id
+
+    async def async_send_recall_whistle(
+        self,
+        pet_id: str,
+        command: HaloRecallCommand,
+        *,
+        pre_dispatch: Callable[[], None],
+    ) -> HaloRecallReply:
+        """Ask Halo to play one pet's Recall whistle, at most once and never retried."""
+        path = f"/pet/{_path_id(pet_id, 'pet')}/run-instant-correction"
+        payload = {
+            "mobileId": command.mobile_id,
+            "commandNumber": command.command_number,
+            "expirationDate": _utc_wire_time(command.expires_at),
+            "correctionType": _RECALL_CORRECTION_TYPE,
+        }
+        result = await self._async_write_json("POST", path, payload, pre_dispatch=pre_dispatch)
+        return _parse_recall_reply(result)
 
     async def async_find_collar(
         self,
@@ -346,14 +523,12 @@ class HaloApiClient:
         *,
         pre_dispatch: Callable[[], None] | None = None,
     ) -> None:
-        """Ask one collar to blink and play Halo's ten-second Return Whistle.
+        """Ask one collar to blink and play Halo's find sound (not the Recall whistle).
 
         This physical command has no response body or durable confirmation state.
         It is sent at most once and is never retried after dispatch.
         """
-        if not isinstance(collar_id, str) or not collar_id:
-            raise HaloApiError("Collar ID must be a non-empty string to find a collar")
-        path = f"/collar/{quote(collar_id, safe='')}/find"
+        path = f"/collar/{_path_id(collar_id, 'collar')}/find"
         await self._async_put_no_content(path, pre_dispatch=pre_dispatch)
 
     async def _async_put_no_content(
@@ -367,7 +542,8 @@ class HaloApiClient:
         await self._async_refresh_if_needed()
         try:
             async with asyncio.timeout(REQUEST_TIMEOUT_SECONDS):
-                async with self._write_transport.put(
+                async with self._write_transport.request(
+                    "PUT",
                     f"{self._api_base}{path}",
                     headers=self._headers(),
                     pre_dispatch=pre_dispatch,
@@ -385,8 +561,9 @@ class HaloApiClient:
                 "Halo API write dispatch failed; outcome is unknown"
             ) from None
 
-    async def _async_put_json(
+    async def _async_write_json(
         self,
+        method: Literal["PUT", "POST"],
         path: str,
         payload: dict[str, Any],
         *,
@@ -397,7 +574,8 @@ class HaloApiClient:
         await self._async_refresh_if_needed()
         try:
             async with asyncio.timeout(REQUEST_TIMEOUT_SECONDS):
-                async with self._write_transport.put(
+                async with self._write_transport.request(
+                    method,
                     f"{self._api_base}{path}",
                     headers=self._headers(),
                     payload=payload,
