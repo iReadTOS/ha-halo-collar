@@ -1,12 +1,16 @@
 {
   "domain": "halo_collar",
   "name": "Halo Collar",
-  "categories": ["pets"],
-  "codeowners": ["@itsreverence"],
+  "categories": [
+    "pets"
+  ],
+  "codeowners": [
+    "@iReadTOS"
+  ],
   "config_flow": true,
-  "documentation": "https://github.com/itsreverence/ha-halo-collar",
+  "documentation": "https://github.com/iReadTOS/ha-halo-collar/blob/release/sso-v0.8.1b1/README_SSO_IMPORT.md",
   "integration_type": "hub",
   "iot_class": "cloud_polling",
-  "issue_tracker": "https://github.com/itsreverence/ha-halo-collar/issues",
-  "version": "0.8.0"
+  "issue_tracker": "https://github.com/iReadTOS/ha-halo-collar/issues",
+  "version": "0.8.1b1"
 }
