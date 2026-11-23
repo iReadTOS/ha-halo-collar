@@ -414,7 +414,7 @@ async def test_reauth_aborts_unusable_saved_identity_before_login(hass, email):
     assert result["reason"] == "reauth_account_unavailable"
     assert result["description_placeholders"] == {
         "recovery_url": (
-            "https://github.com/itsreverence/ha-halo-collar/blob/main/SUPPORT.md#recover-authentication"
+            "https://github.com/iReadTOS/ha-halo-collar/blob/experiment/browser-sso/SUPPORT.md#recover-authentication"
         )
     }
     factory.assert_not_called()
@@ -536,7 +536,7 @@ async def test_reauth_discards_login_if_identity_or_oauth_changes(hass, change):
     assert result["reason"] == "reauth_entry_changed"
     assert result["description_placeholders"] == {
         "recovery_url": (
-            "https://github.com/itsreverence/ha-halo-collar/blob/main/SUPPORT.md#recover-authentication"
+            "https://github.com/iReadTOS/ha-halo-collar/blob/experiment/browser-sso/SUPPORT.md#recover-authentication"
         )
     }
     reload_entry.assert_not_called()
