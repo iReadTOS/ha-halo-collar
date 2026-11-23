@@ -47,9 +47,7 @@ from .const import (
 )
 from .sso_vault import VaultImportError, import_encrypted_vault
 
-_ACCOUNT_RECOVERY_URL = (
-    "https://github.com/itsreverence/ha-halo-collar/blob/main/SUPPORT.md#recover-authentication"
-)
+_ACCOUNT_RECOVERY_URL = "https://github.com/iReadTOS/ha-halo-collar/blob/experiment/browser-sso/SUPPORT.md#recover-authentication"
 
 
 def _client(hass, client_id: str, client_secret: str) -> HaloApiClient:

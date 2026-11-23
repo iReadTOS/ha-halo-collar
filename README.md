@@ -13,7 +13,7 @@ A Home Assistant custom integration for [Halo Collar](https://www.halocollar.com
 > This is an **unofficial** integration. It is not affiliated with, endorsed by, or supported by Halo Collar / Protect Animals With Satellites, LLC. It talks to Halo's private mobile/cloud API, which may change or break at any time. Use at your own risk.
 
 > [!WARNING]
-> **Experimental fork / beta branch.** This fork extends the [upstream integration](https://github.com/itsreverence/ha-halo-collar) with a manual, encrypted-vault import for Sign in with Apple. It is **not** an approved third-party OAuth client, does **not** support a native browser login within Home Assistant, and has **not** been verified with paired collars. Imported SSO entries are read-only; existing password-authenticated entries retain their separately opted-in controls. Do not use this branch as a pet-safety system. See [experimental SSO instructions](README_SSO_IMPORT.md).
+> **Experimental fork / beta branch.** This fork extends the [upstream integration](https://github.com/itsreverence/ha-halo-collar) with a manual, encrypted-vault import for Sign in with Apple. It is **not** an approved third-party OAuth client, does **not** support a native browser login within Home Assistant, and has undergone limited successful testing with two paired collars, including three Home Assistant restarts and overnight operation. Broader compatibility remains unverified. Imported SSO entries are read-only; existing password-authenticated entries retain their separately opted-in controls. Do not use this branch as a pet-safety system. See [experimental SSO instructions](README_SSO_IMPORT.md).
 
 <p align="center">
   <picture>
@@ -52,7 +52,7 @@ The **upstream** Halo Collar integration is in the [HACS default catalog](https:
 
 ### Manual
 
-1. Check out `experiment/browser-sso` in a separate working copy or download that branch's source.
+1. For the published beta, download the `v0.7.9b1` source archive from [this fork's releases](https://github.com/iReadTOS/ha-halo-collar/releases). Before publication, use the `experiment/browser-sso` branch. Verify the repository owner is `iReadTOS`.
 2. Back up your test Home Assistant instance. Copy **only** `custom_components/halo_collar` from that branch into `config/custom_components/`. Do not copy the `research/` helpers or any credential vault into Home Assistant.
 3. Restart Home Assistant, then follow [Configuration](#configuration). Existing upstream installations should not be overwritten during initial beta testing.
 

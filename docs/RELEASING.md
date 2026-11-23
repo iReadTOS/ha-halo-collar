@@ -23,7 +23,7 @@ This checklist is for maintainers.
    ```
 
 5. Confirm the GitHub `Lint` and `Validate` workflows pass for the exact release commit. A local skipped test is not a pass; use the isolated Home Assistant suite.
-6. For this SSO beta, manually verify paired-collar discovery and representative **read-only** battery, connectivity, and location data against the official Halo app in an isolated test instance. Confirm an imported SSO entry never exposes buttons/switches even if options are enabled. Do **not** publish until this is checked and the user understands the limitations.
+6. For this SSO beta, manually verify paired-collar discovery and representative **read-only** battery, connectivity, and location data against the official Halo app preferably in an isolated test instance, with a protected backup. Confirm an imported SSO entry never exposes buttons/switches even if options are enabled. Do **not** publish until this is checked and the user understands the limitations.
 7. Confirm logs, diagnostics, and any release notes exclude token material, encrypted vaults, passphrases, OIDC subjects, names, serial numbers, routes, and coordinates.
 
 The isolated test command above uses the pinned Home Assistant contract described in [Contributing](../CONTRIBUTING.md#pinned-home-assistant-contract). Artifact validation checks package contents and integrity. It does not replace the manual privacy review below.
@@ -48,7 +48,7 @@ Use only original or properly licensed artwork. Do not copy Halo's trademarked l
 1. Create a `vX.Y.Z` tag and GitHub release with user-facing notes.
 2. Mark beta or release-candidate builds as prereleases.
 3. Confirm tagged `hacs.json`, `manifest.json`, local brand icon, and the source archive are publicly reachable.
-4. Install or update through HACS and restart Home Assistant.
+4. Install from the tagged fork release (not the upstream HACS default listing), restart Home Assistant, and verify the integration loads.
 5. Confirm representative entities populate and compare important telemetry with the official Halo app.
 6. Confirm release artifacts, screenshots, logs, and diagnostics contain no credentials, pet names, serial numbers, locations, fences, provider IDs, or private account data. Home Assistant's private device/entity registries intentionally retain stable device identity and local display labels; protect those registries and backups as household data.
 
