@@ -31,6 +31,7 @@ from custom_components.halo_collar.config_flow import _REGISTRATION_ERRORS
 from custom_components.halo_collar.const import (
     CONF_ACCESS_TOKEN,
     CONF_ALLOW_FENCE_DISABLE,
+    CONF_AUTH_METHOD,
     CONF_CLIENT_ID,
     CONF_CLIENT_SECRET,
     CONF_CONFIRM_RECALL_REGISTRATION,
@@ -40,8 +41,11 @@ from custom_components.halo_collar.const import (
     CONF_EXPIRES_AT,
     CONF_REFRESH_TOKEN,
     CONF_SCAN_INTERVAL,
+    CONF_SSO_ISSUER,
+    CONF_SSO_SUBJECT,
     CONF_STALE_AFTER,
     DOMAIN,
+    SSO_VAULT_AUTH,
 )
 from custom_components.halo_collar.controls import control_lock_for
 from custom_components.halo_collar.diagnostics import async_get_config_entry_diagnostics
@@ -148,17 +152,26 @@ def client(clock):
         yield value
 
 
-def _entry(**options) -> MockConfigEntry:
+def _entry(*, sso: bool = False, **options) -> MockConfigEntry:
     return MockConfigEntry(
         domain=DOMAIN,
         title="Halo Collar",
-        unique_id="owner@example.com",
+        unique_id=("oidc:" + "a" * 64) if sso else "owner@example.com",
         data={
             CONF_ACCESS_TOKEN: "access",
             CONF_REFRESH_TOKEN: "refresh",
             CONF_EXPIRES_AT: 4_102_444_800.0,
             CONF_CLIENT_ID: "halo.app.android",
             CONF_CLIENT_SECRET: "public-client-secret",
+            **(
+                {
+                    CONF_AUTH_METHOD: SSO_VAULT_AUTH,
+                    CONF_SSO_ISSUER: "https://auth.halocollar.com",
+                    CONF_SSO_SUBJECT: "synthetic-subject",
+                }
+                if sso
+                else {}
+            ),
         },
         options={**OPTIONS, **options},
     )
@@ -183,8 +196,8 @@ async def _enable_recall(hass, entry, *, confirm: bool = True):
     )
 
 
-async def _registered(hass) -> MockConfigEntry:
-    entry = _entry()
+async def _registered(hass, *, sso: bool = False) -> MockConfigEntry:
+    entry = _entry(sso=sso)
     await _setup(hass, entry)
     result = await _enable_recall(hass, entry)
     assert result["type"] is FlowResultType.CREATE_ENTRY
@@ -214,8 +227,9 @@ def _status(hass, pet_id: str = "pet-1") -> str:
     return hass.states.get(_entity_id(hass, "sensor", f"{pet_id}_recall_whistle_status")).state
 
 
-async def test_default_install_has_no_recall_surface_requests_or_state(hass, client):
-    entry = _entry()
+@pytest.mark.parametrize("sso", [False, True], ids=["password", "sso"])
+async def test_default_install_has_no_recall_surface_requests_or_state(hass, client, sso):
+    entry = _entry(sso=sso)
     await _setup(hass, entry)
 
     assert _entity_id(hass, "button", "pet-1_recall_whistle") is None
@@ -225,8 +239,9 @@ async def test_default_install_has_no_recall_surface_requests_or_state(hass, cli
     assert (client.sent, client.registrations) == ([], [])
 
 
-async def test_registration_needs_confirmation_then_adds_one_button_per_dog(hass, client):
-    entry = _entry()
+@pytest.mark.parametrize("sso", [False, True], ids=["password", "sso"])
+async def test_registration_needs_confirmation_then_adds_one_button_per_dog(hass, client, sso):
+    entry = _entry(sso=sso)
     await _setup(hass, entry)
 
     result = await _enable_recall(hass, entry, confirm=False)
@@ -254,8 +269,9 @@ async def test_registration_needs_confirmation_then_adds_one_button_per_dog(hass
         assert _status(hass, f"pet-{number}") == "ready"
 
 
-async def test_press_sends_one_whistle_and_cools_down_per_collar(hass, client, clock):
-    entry = await _registered(hass)
+@pytest.mark.parametrize("sso", [False, True], ids=["password", "sso"])
+async def test_press_sends_one_whistle_and_cools_down_per_collar(hass, client, clock, sso):
+    entry = await _registered(hass, sso=sso)
 
     await _press(hass)
 

@@ -15,6 +15,7 @@ REDACT_KEYS = frozenset(
         "clientsecret",
         "password",
         "email",
+        "ssosubject",
         "id",
         "token",
         "serialnumber",

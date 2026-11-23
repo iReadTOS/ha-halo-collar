@@ -35,19 +35,24 @@ from custom_components.halo_collar.api import HaloApiError, HaloAuthError, HaloS
 from custom_components.halo_collar.const import (
     CONF_ACCESS_TOKEN,
     CONF_ALLOW_FENCE_DISABLE,
+    CONF_AUTH_METHOD,
     CONF_CLIENT_ID,
     CONF_CLIENT_SECRET,
     CONF_EMAIL,
     CONF_ENABLE_FENCE_CONTROLS,
     CONF_ENABLE_FIND_COLLAR,
+    CONF_ENABLE_RECALL_WHISTLE,
     CONF_EXPIRES_AT,
     CONF_PASSWORD,
     CONF_REFRESH_TOKEN,
     CONF_SCAN_INTERVAL,
+    CONF_SSO_ISSUER,
+    CONF_SSO_SUBJECT,
     CONF_STALE_AFTER,
     DEFAULT_API_BASE,
     DEFAULT_AUTH_BASE,
     DOMAIN,
+    SSO_VAULT_AUTH,
 )
 from custom_components.halo_collar.control_status import find_status_signal
 from custom_components.halo_collar.controls import (
@@ -240,17 +245,27 @@ def _state_with_second_collar():
     return state
 
 
-def _entry(options):
+def _entry(options, *, sso: bool = False):
     return MockConfigEntry(
         domain=DOMAIN,
         title="Halo Collar",
-        unique_id="owner@example.com",
+        unique_id=("oidc:" + "a" * 64) if sso else "owner@example.com",
         data={
             CONF_ACCESS_TOKEN: "access",
             CONF_REFRESH_TOKEN: "refresh",
             CONF_EXPIRES_AT: 4_102_444_800.0,
             CONF_CLIENT_ID: "halo.app.android",
             CONF_CLIENT_SECRET: "public-client-secret",
+            **(
+                {
+                    CONF_AUTH_METHOD: SSO_VAULT_AUTH,
+                    CONF_SSO_ISSUER: "https://auth.halocollar.com",
+                    CONF_SSO_SUBJECT: "synthetic-subject",
+                    CONF_EMAIL: "owner@example.com",
+                }
+                if sso
+                else {}
+            ),
         },
         options={
             CONF_SCAN_INTERVAL: 300,
@@ -283,9 +298,10 @@ def _state_for_unique_id(hass, platform: str, unique_id: str):
     return state
 
 
-async def test_runtime_setup_registers_platforms_and_guarded_control_surface(hass):
+@pytest.mark.parametrize("sso", [False, True], ids=["password", "sso"])
+async def test_runtime_setup_registers_platforms_and_guarded_control_surface(hass, sso):
     client = FakeHaloClient(_state())
-    entry = _entry({})
+    entry = _entry({}, sso=sso)
     entry.add_to_hass(hass)
 
     await _setup(hass, entry, client)
@@ -423,11 +439,14 @@ async def test_runtime_hardware_issue_is_bounded_and_fail_closed(hass):
     assert "non_critical_issues" not in hardware.attributes
 
 
-async def test_find_collar_button_is_opt_in_and_dispatches_one_synthetic_command(hass, monkeypatch):
+@pytest.mark.parametrize("sso", [False, True], ids=["password", "sso"])
+async def test_find_collar_button_is_opt_in_and_dispatches_one_synthetic_command(
+    hass, monkeypatch, sso
+):
     clock = [1_000.0]
     monkeypatch.setattr("custom_components.halo_collar.controls.time.monotonic", lambda: clock[0])
     client = FakeHaloClient(_state())
-    entry = _entry({CONF_ENABLE_FIND_COLLAR: True})
+    entry = _entry({CONF_ENABLE_FIND_COLLAR: True}, sso=sso)
     entry.add_to_hass(hass)
 
     await _setup(hass, entry, client)
@@ -465,11 +484,14 @@ async def test_find_collar_button_is_opt_in_and_dispatches_one_synthetic_command
 
 
 @pytest.mark.parametrize(("service", "enabled"), [("turn_on", True), ("turn_off", False)])
-async def test_fence_switch_writes_requested_mode_and_shows_confirmed_state(hass, service, enabled):
+@pytest.mark.parametrize("sso", [False, True], ids=["password", "sso"])
+async def test_fence_switch_writes_requested_mode_and_shows_confirmed_state(
+    hass, service, enabled, sso
+):
     state = _state()
     state.pets[0]["telemetry"]["mode"]["fencesOn"] = not enabled
     client = FakeHaloClient(state)
-    entry = _entry({CONF_ALLOW_FENCE_DISABLE: True})
+    entry = _entry({CONF_ALLOW_FENCE_DISABLE: True}, sso=sso)
     entry.add_to_hass(hass)
     await _setup(hass, entry, client)
     before, after = (STATE_OFF, STATE_ON) if enabled else (STATE_ON, STATE_OFF)
@@ -484,9 +506,10 @@ async def test_fence_switch_writes_requested_mode_and_shows_confirmed_state(hass
     assert hass.states.get("switch.cowboy_fence_mode").state == after
 
 
-async def test_fence_switch_turn_off_during_active_walk_is_refused_without_a_write(hass):
+@pytest.mark.parametrize("sso", [False, True], ids=["password", "sso"])
+async def test_fence_switch_turn_off_during_active_walk_is_refused_without_a_write(hass, sso):
     client = FakeHaloClient(_state())
-    entry = _entry({CONF_ALLOW_FENCE_DISABLE: True})
+    entry = _entry({CONF_ALLOW_FENCE_DISABLE: True}, sso=sso)
     entry.add_to_hass(hass)
     await _setup(hass, entry, client)
     client.state = deepcopy(client.state)
@@ -503,11 +526,12 @@ async def test_fence_switch_turn_off_during_active_walk_is_refused_without_a_wri
     assert hass.states.get("switch.cowboy_fence_mode").state == STATE_ON
 
 
-async def test_enable_fences_button_writes_enable_and_shows_confirmed_state(hass):
+@pytest.mark.parametrize("sso", [False, True], ids=["password", "sso"])
+async def test_enable_fences_button_writes_enable_and_shows_confirmed_state(hass, sso):
     state = _state()
     state.pets[0]["telemetry"]["mode"]["fencesOn"] = False
     client = FakeHaloClient(state)
-    entry = _entry({})
+    entry = _entry({}, sso=sso)
     entry.add_to_hass(hass)
     await _setup(hass, entry, client)
     assert hass.states.get("binary_sensor.cowboy_fences_enabled").state == STATE_OFF
@@ -2977,3 +3001,49 @@ async def test_observed_credential_mismatch_permanently_retires_writer(hass, fie
         }
     )
     assert dict(entry.data) == original
+
+
+async def test_sso_default_has_no_opt_in_control_entities(hass):
+    client = FakeHaloClient(_state())
+    entry = _entry(
+        {
+            CONF_ENABLE_FENCE_CONTROLS: False,
+            CONF_ENABLE_FIND_COLLAR: False,
+            CONF_ALLOW_FENCE_DISABLE: False,
+            CONF_ENABLE_RECALL_WHISTLE: False,
+        },
+        sso=True,
+    )
+    entry.add_to_hass(hass)
+    await _setup(hass, entry, client)
+
+    assert entry.state is ConfigEntryState.LOADED
+    assert hass.states.get("device_tracker.cowboy") is not None
+    assert hass.states.get("button.cowboy_enable_fences") is None
+    assert hass.states.get("button.cowboy_find_collar_sound_and_light") is None
+    assert hass.states.get("switch.cowboy_fence_mode") is None
+    assert er.async_get(hass).async_get_entity_id("button", DOMAIN, "pet-1_recall_whistle") is None
+    assert client.writes == []
+    assert client.finds == []
+
+
+async def test_sso_diagnostics_redacts_subject_and_credentials(hass):
+    """An SSO identity must not leak into downloadable HA diagnostics."""
+    client = FakeHaloClient(_state())
+    entry = _entry({CONF_ENABLE_FENCE_CONTROLS: False}, sso=True)
+    entry.add_to_hass(hass)
+    await _setup(hass, entry, client)
+
+    report = await async_get_config_entry_diagnostics(hass, entry)
+    saved = report["entry"]["data"]
+    for key in (
+        CONF_SSO_SUBJECT,
+        CONF_ACCESS_TOKEN,
+        CONF_REFRESH_TOKEN,
+        CONF_CLIENT_SECRET,
+        CONF_EMAIL,
+    ):
+        assert saved[key] == "**REDACTED**"
+    serialized = json.dumps(report, default=str)
+    for secret in ("synthetic-subject", "public-client-secret", "owner@example.com"):
+        assert secret not in serialized
