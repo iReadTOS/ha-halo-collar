@@ -18,6 +18,7 @@ from .const import (
     CONF_REFRESH_TOKEN,
     CONF_SCAN_INTERVAL,
     CONF_SSO_ISSUER,
+    CONF_SSO_OPTIONS_MIGRATED,
     CONF_SSO_SUBJECT,
     DEFAULT_API_BASE,
     DEFAULT_AUTH_BASE,
@@ -99,6 +100,24 @@ async def async_setup_entry(hass, entry) -> bool:
     session = async_get_clientsession(hass)
     ssl_context = await hass.async_add_executor_job(client_context)
     _absorb_reload_requests(hass, entry.entry_id)
+    # Older read-only SSO betas displayed opt-ins but deliberately ignored them.
+    # Clear those latent opt-ins once, BEFORE building a client or forwarding
+    # platforms. A fresh SSO import is marked as already migrated.
+    if (
+        entry.data.get(CONF_AUTH_METHOD) == SSO_VAULT_AUTH
+        and entry.data.get(CONF_SSO_OPTIONS_MIGRATED) is not True
+    ):
+        hass.config_entries.async_update_entry(
+            entry,
+            data={**entry.data, CONF_SSO_OPTIONS_MIGRATED: True},
+            options={
+                **entry.options,
+                CONF_ENABLE_FENCE_CONTROLS: False,
+                CONF_ENABLE_FIND_COLLAR: False,
+                CONF_ALLOW_FENCE_DISABLE: False,
+                CONF_ENABLE_RECALL_WHISTLE: False,
+            },
+        )
     data = dict(entry.data)
     credentials = _credentials(data)
     writer = _TokenWriter(hass, entry, credentials)

@@ -38,7 +38,7 @@ An account-level **Subscription** sensor summarizes subscription limits. Optiona
 ## Requirements
 
 - Home Assistant 2024.12 or newer.
-- A Halo account with an active Pack Membership Plan and at least one paired collar (the same email/password you use in the Halo mobile app).
+- A Halo account with an active Pack Membership Plan and at least one paired collar. Standard setup uses your Halo email and password; experimental SSO requires a verified, encrypted vault created with the separate browser helper.
 
 ## Installation
 
@@ -73,12 +73,12 @@ Halo Collar is included in the [HACS default catalog](https://github.com/hacs/de
 
 1. Go to **Settings → Devices & Services → Add Integration**.
 2. Search for **Halo Collar**.
-3. Enter the **email** and **password** for your Halo account.
-4. Submit. The integration signs in, discovers your collars, and creates the entities.
+3. Choose **Email and password** for standard authentication, or **Import encrypted SSO vault** for the experimental Sign in with Apple workflow. For SSO, first follow the [SSO setup guide](README_SSO_IMPORT.md) on a trusted Fedora/Linux computer.
+4. Complete the selected form. The integration discovers your collars and creates the entities.
 
 The advanced OAuth client fields use the official app's defaults. You can override them during initial setup. Reauthentication and options cannot replace saved OAuth settings. For an existing entry with authentication trouble, follow [Recover authentication](SUPPORT.md#recover-authentication).
 
-Home Assistant stores tokens, expiry, normalized email, and OAuth client settings, but never your password. It refreshes access tokens automatically and prompts for same-account reauthentication when needed. See [Authentication](docs/ARCHITECTURE.md#authentication) for the password-grant flow and persistence details.
+Home Assistant stores OAuth tokens, expiry, and client settings, but never your password. Password entries store a normalized email; SSO entries instead retain the verified issuer and OIDC subject (and an email only if verified and available). Vault ciphertext and passphrases are not stored. Token refresh is automatic; reauthentication must use the same account. See [Authentication](docs/ARCHITECTURE.md#authentication) and the [experimental SSO guide](README_SSO_IMPORT.md).
 
 ### Confirm it is working
 
@@ -103,7 +103,7 @@ Open **Configure** on the integration under **Settings > Devices & services**.
 | **Enable Find collar sound and light** | Off. Adds **Find collar (sound and light)** to request a sound and light command. It may confuse a pet wearing the collar. It requires fresh exact mapping, subscription entitlement, and no active or unknown walk. Every attempted dispatch starts a 60-second cooldown, including failed or ambiguous outcomes. Provider acceptance does not verify physical execution. |
 | **Enable Recall whistle** | Off. Adds a **Recall whistle** button for each dog that wears a Halo collar. Turning it on first asks you to register Home Assistant with Halo, a permanent account change. See [Recall whistle](#recall-whistle). |
 
-Controls require telemetry no older than the shorter of **Collar report age limit** and 900 seconds. Fence changes require synchronized reported-state confirmation. Commands are sent at most once and are never replayed after an ambiguous result.
+Both password and experimental SSO entries use the same separately opt-in controls. SSO control dispatch has been tested with synthetic clients; live provider authorization remains unverified. Controls require telemetry no older than the shorter of **Collar report age limit** and 900 seconds. Fence changes require synchronized reported-state confirmation. Commands are sent at most once and are never replayed after an ambiguous result.
 
 Each opted-in action adds a status sensor under **Diagnostic** on the collar's device page. Check **Enable fences status**, **Disable fences status**, or **Find collar status** for a cached reason such as unknown walk state or cooldown. These sensors stay readable during cloud failures. **Ready to try** means cached data shows no blocker. The action still fetches and validates fresh state and can be rejected.
 

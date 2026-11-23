@@ -42,6 +42,7 @@ from custom_components.halo_collar.const import (
     CONF_REFRESH_TOKEN,
     CONF_SCAN_INTERVAL,
     CONF_SSO_ISSUER,
+    CONF_SSO_OPTIONS_MIGRATED,
     CONF_SSO_SUBJECT,
     CONF_STALE_AFTER,
     DOMAIN,
@@ -166,6 +167,7 @@ def _entry(*, sso: bool = False, **options) -> MockConfigEntry:
             **(
                 {
                     CONF_AUTH_METHOD: SSO_VAULT_AUTH,
+                    CONF_SSO_OPTIONS_MIGRATED: True,
                     CONF_SSO_ISSUER: "https://auth.halocollar.com",
                     CONF_SSO_SUBJECT: "synthetic-subject",
                 }

@@ -29,6 +29,7 @@ from .const import (
     CONF_REFRESH_TOKEN,
     CONF_SCAN_INTERVAL,
     CONF_SSO_ISSUER,
+    CONF_SSO_OPTIONS_MIGRATED,
     CONF_SSO_SUBJECT,
     CONF_STALE_AFTER,
     DEFAULT_ALLOW_FENCE_DISABLE,
@@ -182,6 +183,7 @@ class HaloCollarConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     return self.async_abort(reason="password_entry_exists")
                 data = {
                     CONF_AUTH_METHOD: SSO_VAULT_AUTH,
+                    CONF_SSO_OPTIONS_MIGRATED: True,
                     CONF_SSO_ISSUER: imported.issuer,
                     CONF_SSO_SUBJECT: imported.subject,
                     CONF_CLIENT_ID: imported.client_id,

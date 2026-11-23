@@ -47,6 +47,7 @@ from custom_components.halo_collar.const import (
     CONF_REFRESH_TOKEN,
     CONF_SCAN_INTERVAL,
     CONF_SSO_ISSUER,
+    CONF_SSO_OPTIONS_MIGRATED,
     CONF_SSO_SUBJECT,
     CONF_STALE_AFTER,
     DEFAULT_API_BASE,
@@ -259,6 +260,7 @@ def _entry(options, *, sso: bool = False):
             **(
                 {
                     CONF_AUTH_METHOD: SSO_VAULT_AUTH,
+                    CONF_SSO_OPTIONS_MIGRATED: True,
                     CONF_SSO_ISSUER: "https://auth.halocollar.com",
                     CONF_SSO_SUBJECT: "synthetic-subject",
                     CONF_EMAIL: "owner@example.com",
@@ -3047,3 +3049,44 @@ async def test_sso_diagnostics_redacts_subject_and_credentials(hass):
     serialized = json.dumps(report, default=str)
     for secret in ("synthetic-subject", "public-client-secret", "owner@example.com"):
         assert secret not in serialized
+
+
+async def test_read_only_beta_sso_options_are_reset_before_platform_setup(hass):
+    """An upgrade must not activate opt-ins that the read-only beta ignored."""
+    client = FakeHaloClient(_state())
+    entry = _entry(
+        {
+            CONF_ENABLE_FENCE_CONTROLS: True,
+            CONF_ALLOW_FENCE_DISABLE: True,
+            CONF_ENABLE_FIND_COLLAR: True,
+            CONF_ENABLE_RECALL_WHISTLE: True,
+            CONF_SCAN_INTERVAL: 600,
+        },
+        sso=True,
+    )
+    entry.add_to_hass(hass)
+    # Simulate an SSO config entry created by the previous read-only beta.
+    hass.config_entries.async_update_entry(
+        entry,
+        data={key: value for key, value in entry.data.items() if key != CONF_SSO_OPTIONS_MIGRATED},
+    )
+    assert CONF_SSO_OPTIONS_MIGRATED not in entry.data
+    await _setup(hass, entry, client)
+
+    assert entry.state is ConfigEntryState.LOADED
+    assert entry.data[CONF_SSO_OPTIONS_MIGRATED] is True
+    assert entry.options[CONF_SCAN_INTERVAL] == 600
+    for option in (
+        CONF_ENABLE_FENCE_CONTROLS,
+        CONF_ALLOW_FENCE_DISABLE,
+        CONF_ENABLE_FIND_COLLAR,
+        CONF_ENABLE_RECALL_WHISTLE,
+    ):
+        assert entry.options[option] is False
+    assert hass.states.get("device_tracker.cowboy") is not None
+    assert hass.states.get("button.cowboy_enable_fences") is None
+    assert hass.states.get("button.cowboy_find_collar_sound_and_light") is None
+    assert hass.states.get("switch.cowboy_fence_mode") is None
+    assert er.async_get(hass).async_get_entity_id("button", DOMAIN, "pet-1_recall_whistle") is None
+    assert client.writes == []
+    assert client.finds == []

@@ -26,6 +26,7 @@ from custom_components.halo_collar.const import (
     CONF_EXPIRES_AT,
     CONF_REFRESH_TOKEN,
     CONF_SSO_ISSUER,
+    CONF_SSO_OPTIONS_MIGRATED,
     CONF_SSO_SUBJECT,
     DOMAIN,
     SSO_VAULT_AUTH,
@@ -81,6 +82,7 @@ async def test_vault_import_creates_separate_oidc_entry_without_secrets_in_form(
     entry = result["result"]
     assert entry.unique_id.startswith("oidc:")
     assert entry.data[CONF_AUTH_METHOD] == SSO_VAULT_AUTH
+    assert entry.data[CONF_SSO_OPTIONS_MIGRATED] is True
     assert entry.data[CONF_SSO_ISSUER] == "https://auth.halocollar.com"
     assert entry.data[CONF_SSO_SUBJECT] == "synthetic-subject"
     assert entry.data[CONF_CLIENT_ID] == "halo.app.android"

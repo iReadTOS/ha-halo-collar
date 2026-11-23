@@ -57,7 +57,7 @@ The code map comes from the Halo app. A live cloud response confirmed the field 
 
 ## Authentication
 
-The config flow collects the user's Halo email and password and exchanges them for OAuth tokens via the password grant. The bundled `client_id`/`client_secret` are static, app-level credentials extracted from the official Halo app (shared by all installs, not user data); users can override them in the advanced fields during initial setup. Reauthentication uses the saved OAuth settings and exposes only email and password. Options cannot change OAuth settings. See [account recovery](../SUPPORT.md#recover-authentication) for existing-entry precautions.
+The config flow offers password authentication and experimental import of an independently verified, encrypted SSO vault. Password authentication exchanges the Halo email and password for OAuth tokens using the password grant. SSO import decrypts the authenticated vault in an executor, checks the declared issuer, subject, and client fields, and saves the OAuth credentials and identity data. The separate browser helper verifies the signed OIDC identity token before constructing the vault. The original ciphertext and passphrase are not retained. The research helper uses Halo's mobile OAuth client registration, not an officially approved third-party callback. The bundled `client_id`/`client_secret` are static, app-level credentials extracted from the official Halo app. Reauthentication and options cannot change saved OAuth client settings. See [account recovery](../SUPPORT.md#recover-authentication) and the [SSO guide](../README_SSO_IMPORT.md).
 
 ### Token persistence
 
@@ -65,13 +65,13 @@ Refreshed tokens and expiry-only renewals are written back to the config entry s
 
 The client submits each validated rotation to Home Assistant's config-entry storage mechanism before another await. Later polling failures, cancellation, and command vetoes therefore do not discard that update. This schedules storage through Home Assistant; it does not guarantee a disk flush. The historical `expires_at` field stores the refresh deadline, already 60 seconds before provider expiry. The refresh check compares that deadline directly. OAuth 429 responses are temporary failures, classified before reading their bodies, and are not retried.
 
-Each setup client has a private token writer seeded from its starting access token, refresh token, and expiry. Before saving a rotation, the writer synchronously checks that the same entry is still registered and its saved credential triple matches the writer's last saved triple. A mismatch permanently retires that writer. Successful unload and incomplete or cancelled setup also retire it. A failed unload alone retains persistence authority. Already committed rotations survive setup failure and cancellation.
+Each setup client has a private token writer seeded from its starting access token, refresh token, and expiry. For SSO entries, the writer additionally binds rotation to the saved unique ID, issuer, subject, and OAuth client settings; a changed identity permanently retires the old writer. Before saving a rotation, the writer synchronously checks that the same entry is still registered and its saved credential triple matches the writer's last saved triple. A mismatch permanently retires that writer. Successful unload and incomplete or cancelled setup also retire it. A failed unload alone retains persistence authority. Already committed rotations survive setup failure and cancellation.
 
 If reauth returns an identical credential triple, a rotation arriving before successful unload may still be saved. Replacement setup then starts from that saved triple. After retirement, the old callback cannot save. After reauth changes the credentials and unload fails, the retained old runtime cannot overwrite the accepted credentials. Home Assistant still owns recovery from that failed unload. These checks make no claim about provider token validity.
 
 The repository must not contain real user access/refresh tokens, account credentials, serial-specific payloads, or real location data.
 
-### Same-account reauthentication
+### Password same-account reauthentication
 
 1. Normalize the saved email by trimming whitespace and lowercasing. Any stored unique ID must agree. Legacy entries without a unique ID use the saved email without backfilling the ID.
 2. Abort before login if saved identity is missing or conflicting. Reject a different submitted account with an email field error before constructing a client.
@@ -82,6 +82,25 @@ Successful reauth updates the entry, requests a reload, and returns its successf
 abort before reload dispatch. It uses public APIs available in Home Assistant
 2024.12, including when credentials are unchanged or no runtime exists. It does
 not use the deprecated flow helper that combines an update listener with reload.
+
+### SSO same-account reauthentication
+
+The SSO reauthentication form imports a newly created encrypted vault and
+requires the exact saved OIDC issuer, subject, and OAuth client ID. The
+flow verifies that the config entry still holds the same original data
+before committing a token rotation, preventing a stale reauth flow from
+overwriting concurrent changes. The account's unique ID remains stable.
+The imported vault is not retained, and a previously saved vault may no
+longer contain a valid refresh token after rotation.
+
+### Read-only SSO beta migration
+
+An older read-only SSO entry may hold control option values that never had
+an effect. Before setting up its API client or platforms, the first setup
+with full SSO control support resets all four control options to false and
+records a one-time migration marker in the config entry. Fresh SSO imports
+already carry that marker. Polling and staleness preferences are preserved;
+users can opt in explicitly after migration. Password entries are unchanged.
 
 ### Reload ownership
 
@@ -164,7 +183,7 @@ same entity IDs.
 
 ## Privacy boundary
 
-Config-entry diagnostics recursively redact generic provider IDs, names,
+Config-entry diagnostics recursively redact the SSO subject identifier, generic provider IDs, names,
 serials, hardware UUIDs, reporting-collar and current-fence IDs, signed pet icon and report URLs, coordinates, credentials, and account fields. Diagnostics report only the Recall registration state name; the mobile ID, collar serials, and command numbers stay in the private Recall file. Stable collar IDs and
 the local display name remain in Home Assistant's private device/entity
 registries because they provide durable identity and usable household labels;

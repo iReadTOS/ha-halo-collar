@@ -22,7 +22,7 @@
 
 ## Recover authentication
 
-Reauthentication renews credentials for the account already saved in this integration. Email comparison ignores surrounding spaces and capitalization. Use the saved account's email and current Halo password. A different email is rejected before sign-in. To use a different account, add a separate Halo Collar integration.
+Reauthentication renews credentials for the account already saved in this integration. For a password entry, email comparison ignores surrounding spaces and capitalization: use the saved account's email and current Halo password; a different email is rejected before sign-in. For an experimental SSO entry, generate and import a **new** encrypted vault for the exact same verified issuer, subject, and OAuth client ID. A previously saved vault may contain a refresh token that has already rotated, so don't assume it can be reused. See the [SSO guide](README_SSO_IMPORT.md). To use a different account, add a separate integration.
 
 If Home Assistant reports that the account or OAuth settings changed during sign-in, restart reauthentication from the current integration. If the saved identity is missing or inconsistent, reauthentication stops without changing credentials. It does not repair, migrate, or delete the entry. Check that you selected the intended integration and consult the [support routes](#bugs-and-feature-requests) if you need help.
 
